@@ -1,0 +1,57 @@
+<html>
+<head>
+<script type="text/javascript" src="tex.js"></script>
+<script type="text/javascript" src="http://code.jquery.com/jquery-1.5.1.min.js"></script>
+<style>
+  .title {
+  font-style: italic;
+  }
+  .LaTeX {
+    border-radius: 8px;
+    margin:10px;
+    padding:10px;
+    background-color: #F1F1D4;
+  }
+</style>
+<script>
+  function clearContents(id){
+    var div = document.getElementById(id);
+    while(div.firstChild){
+      div.removeChild(div.firstChild);
+    }
+  }
+  function handleFileSelect(evt) {
+    var files = evt.target.files; 
+    for (var i = 0, f; f = files[i]; i++) {
+       var title = document.createElement("div");
+       title.innerHTML= escape(f.name) + " - " + f.size + " bytes, last modified: " + (f.lastModifiedDate ? f.lastModifiedDate.toLocaleDateString() : "n/a");
+       title.className="title";
+       document.getElementById("main").insertBefore(title, null);
+      if (!f.type.match("text.*")) {
+        continue;
+      }
+      var reader = new FileReader();
+      reader.onload = (function(theFile) {
+        return function(e) {
+          var content = document.createElement("div");
+          content.innerHTML += jstex.texdoc(e.target.result);
+          content.className="LaTeX";
+          document.getElementById("main").insertBefore(content, null);
+        };
+      })(f);
+      reader.readAsText(f);
+    }
+  }
+</script>
+</head>
+<body>
+<input type="file" id="files" name="files[]" multiple>
+<input type="button" id="clear" value="clear" onclick="clearContents('main')">
+<div id="main">
+</div>
+<script>
+  document.getElementById("files").addEventListener("change", handleFileSelect, false);
+</script>
+
+</body>
+</html>
