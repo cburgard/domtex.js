@@ -164,7 +164,7 @@ var jstex = {
 	    }
 	    if(tkn.isUndefined){
 		console.log("undefined control sequence: " +tkn.name);
-		out += "?";
+		out += jstex.unknownCSalias;
 		continue;
 	    } 
 	    if(tkn.exec !== undefined){
@@ -216,7 +216,8 @@ var jstex = {
 	if(jstex.beginsWith(str,"http://") || jstex.beginsWith(str,"https://") || jstex.beginsWith(str,"mailto:"))
 	    return str;
 	return "http://"+str;
-    }
+    },
+    unknownCSalias : "&#65533;"
 }
 
 jstex.newCommand("par",function(tokens){return "<br>"});
