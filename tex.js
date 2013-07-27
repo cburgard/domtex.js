@@ -41,6 +41,7 @@ var jstex = {
     },
 
     commands : new Object(),
+    environments : new Object(),
 	    
     tokenize : function(input){
 	var idx = 0;
@@ -53,6 +54,12 @@ var jstex = {
 		respectblanks = false;
 		respectnewlines = 0;
 		idx++;
+		continue;
+	    }
+	    if(input[idx] == '%'){
+		var i = jstex.findNextOf(input,"\n\r",idx+1);
+		if(i > 0) idx = i;
+		else idx++;
 		continue;
 	    }
 	    if(input[idx] == '\n' || input[idx] == '\r'){
@@ -70,6 +77,17 @@ var jstex = {
 		    respectblanks = false;
 		    respectnewlines=0;
 		    continue;
+		} else if(input[idx+1]==='-'){
+		    idx+=2;
+		    respectblanks = false;
+		    respectnewlines=0;
+		    continue;
+		} else if(input[idx+1]===' '){
+		    idx+=2;
+		    tokens.push(" ");
+		    respectblanks = true
+		    respectnewlines=0;
+		    continue;
 		} else if(input[idx+1]==='\\'){
 		    idx+=2;
 		    tokens.push("<br>");
@@ -77,9 +95,10 @@ var jstex = {
 		    respectnewlines=0;
 		    continue;
 		}
-		var endidx = jstex.findNextOf(input,"\\{[ \n\r%",idx+1);
+		var endidx  = jstex.findNextOf(input,"\\{[-\t \n\r%",idx+1);
+		if(endidx < 0) endidx = input.length;
 		var cmdname = input.substr(idx+1,endidx-idx-1);
-		var cmd = jstex.commands[cmdname];
+		var cmd     = jstex.commands[cmdname];
 		if(!cmd) tokens.push(jstex.undefcommand(cmdname));
 		else tokens.push(cmd),
 		respectblanks = false;
@@ -89,6 +108,11 @@ var jstex = {
 	    }
 	    if(input[idx] == '{'){
 		var endidx = jstex.findParenthesisMatch(input,"{","}",idx);
+		if(endidx < 0){
+		    console.log("WARNING: mismatched parenthesis at " + input.substr(idx-10,20));
+		    idx++;
+		    continue;
+		}
 		var token = jstex.tokenize(input.substr(idx+1,endidx-idx-1));
 		token.optArg=false;
 		tokens.push(token);
@@ -141,6 +165,9 @@ var jstex = {
 	var begindocument = jstex.findenvbegin(source,"document");
 	var enddocument   = jstex.findenvend(source,"document");
 	if(begindocument >= 0 && enddocument >= 0){
+	    var preamble = jstex.tokenize(source.substr(0,begindocument-16));
+	    var spurious = jstex.process(preamble);
+	    console.log("spurious symbols from preamble: " + spurious);
 	    return jstex.tex(source.substr(begindocument,enddocument-begindocument));
 	}
 	return "jsTeX error: missing begin/end document!"
@@ -164,7 +191,7 @@ var jstex = {
 	    }
 	    if(tkn.isUndefined){
 		console.log("undefined control sequence: " +tkn.name);
-		out += jstex.unknownCSalias;
+		out += "<span title='"+tkn.name+"'>"+jstex.unknownCSalias+"</span>";
 		continue;
 	    } 
 	    if(tkn.exec !== undefined){
@@ -181,7 +208,7 @@ var jstex = {
 	}
 	return out;
     },
-    tex : function(source){
+    tex:function(source){
 	var tokens;
 	if( typeof source === 'string' ) {
 	    tokens = jstex.tokenize(source);
@@ -197,6 +224,19 @@ var jstex = {
 	cmd.exec = exec;
 	jstex.commands[name]=cmd;
     },
+    newEnvironment : function(name,wrap){
+	var env = new Object();
+	env.name = name;
+	env.wrap=wrap;
+	jstex.environments[name]=env;
+    },
+    ignoreCommand : function(name,argc){
+	if(!argc) argc=0;
+	var cmd = new Object();
+	cmd.name = name;
+	cmd.exec = function(tokens){for(var i=0; i<argc; i++) tokens.shift();};
+	jstex.commands[name]=cmd;
+    },
     
     tags : {
 	section : "h1",
@@ -207,6 +247,10 @@ var jstex = {
     lengths : {
 	frameborder : "1px"
     },
+
+    counters : {
+    },
+
     beginsWith : function(str,begin){
 	if(str.indexOf(begin) == 0)
 	    return true;
@@ -218,13 +262,14 @@ var jstex = {
 	return "http://"+str;
     },
     unknownCSalias : "&#65533;"
+
 }
 
+// basic symbols
 jstex.newCommand("par",function(tokens){return "<br>"});
-jstex.newCommand("glqq",function(tokens){return "&bdquo;"});
-jstex.newCommand("grqq",function(tokens){return "&ldquo;"});
-jstex.newCommand("euro",function(tokens){return "&euro;"});
 jstex.newCommand("newline",function(tokens){return "<br>"});
+
+// basic commmands
 jstex.newCommand("textit",function(tokens){return "<i>"+jstex.tex(tokens.shift())+"</i>"});
 jstex.newCommand("url",function(tokens){ var link = tokens.shift().join(""); return "<a href='"+jstex.linkify(link)+"'>"+link+"</a>";});
 jstex.newCommand("textbf",function(tokens){return "<b>"+jstex.tex(tokens.shift())+"</b>"});
@@ -235,11 +280,125 @@ jstex.newCommand("subsubsection",function(tokens){return "<"+jstex.tags["subsubs
 jstex.newCommand("mbox",function(tokens){return "<span style='white-space:nowrap'>"+jstex.tex(tokens.shift())+"</span>"});
 jstex.newCommand("fbox",function(tokens){return "<span style='white-space:nowrap; border:"+jstex.lengths.frameborder+"'>"+jstex.tex(tokens.shift())+"</span>"});
 jstex.newCommand("parbox",function(tokens){return "<span'>"+jstex.tex(tokens.shift())+"</span>"});
+
+// special commands
+
+jstex.newCommand("usepackage",function(tokens){
+    var arg = tokens.shift();
+    if(arg.optArg){
+	var pkgname = tokens.shift().join("");
+    } else {
+	var pkgname = arg.join("");
+	arg = undefined;
+    }
+    console.log("including package: " +pkgname + (arg ? " with arguments: " + arg.join("") : ""));
+    return "";
+});
+
+jstex.newCommand("documentclass",function(tokens){
+    var arg = tokens.shift();
+    if(arg.optArg){
+	var pkgname = tokens.shift().join("");
+    } else {
+	var pkgname = arg.join("");
+	arg = undefined;
+    }
+    console.log("using documentclass: " +pkgname + (arg ? " with arguments: " + arg.join("") : ""));
+    return "";
+});
+
+jstex.newCommand("setlength",function(tokens){
+    var lengthname = tokens.shift().shift().name;
+    var lengthval = tokens.shift()
+    jstex.lengths[lengthname]=lengthval;
+    console.log("setting length "+lengthname+"="+lengthval);
+    return "";
+});
+
+jstex.newCommand("setcounter",function(tokens){
+    var cntname = tokens.shift().join("");
+    var cntval = tokens.shift().join("");
+    jstex.counters[cntname]=cntval;
+    console.log("setting counter "+cntname+"="+cntval);
+    return "";
+});
+
+jstex.newCommand("newcommand",function(tokens){
+    var newcmd = tokens.shift();
+    var cmdtkn = newcmd.shift();
+    var arg = tokens.shift();
+    if(arg.optArg){
+	var argno = int(arg);
+	arg = tokens.shift();
+	if(arg.optArg){
+	    var defoptarg = arg;
+	    arg = tokens.shift();
+	}
+    }
+    var cmd = arg;
+    if(!cmdtkn.isUndefined){
+	console.log(cmdtkn);
+	console.log(cmdtkn.name + " is already defined!");
+	return "";
+    }
+    console.log("\\newcommand\\"+cmdtkn.name+"... - call not yet implemented!");
+    return "";
+});
+
 jstex.newCommand("begin",function(tokens){
-    tokens.shift();
+    var envname = tokens.shift().join("");
+    var env = jstex.environments[envname];
+    if(!env){
+	console.log("warning: encountered unknown begin-environment "+envname);
+    } else {
+	return env.wrap(tokens);
+    }
     return jstex.process(tokens);
 });
-jstex.newCommand("end",function(tokens){
-    tokens.shift();
+
+jstex.newCommand("csname",function(tokens){
+    tokens.shift()
+    return jstex.process(tokens);
+});
+
+jstex.newCommand("endcsname",function(tokens){
     return false;
 });
+
+jstex.newCommand("end",function(tokens){
+    var envname = tokens.shift().join("");
+    var env = jstex.environments[envname];
+    var out = "";
+    if(!env){
+	console.log("warning: encountered unknown end-environment "+envname);
+    }
+    return false;
+});
+
+// extra symbols
+
+jstex.newCommand("glqq",function(tokens){return "&bdquo;"});
+jstex.newCommand("grqq",function(tokens){return "&ldquo;"});
+jstex.newCommand("euro",function(tokens){return "&euro;"});
+jstex.newCommand("texttimes",function(tokens){return "&times;"});
+jstex.newCommand("dots",function(tokens){return "&hellip;"});
+jstex.newCommand("bigskip",function(tokens){return "<div style='margin:1em'></div>"});
+jstex.newCommand("&",function(tokens){return "&amp;"});
+
+
+
+// ignored commands
+
+jstex.ignoreCommand("sloppy");
+jstex.ignoreCommand("twocolumn");
+jstex.ignoreCommand("onecolumn");
+jstex.ignoreCommand("noindent");
+jstex.ignoreCommand("tableofcontents");
+jstex.ignoreCommand("newlength");
+jstex.ignoreCommand("newcounter");
+jstex.ignoreCommand("geometry",1);
+
+
+// environments
+
+jstex.newEnvironment("center",function(tokens){return "<center>"+jstex.process(tokens)+"</center>"});
