@@ -1,4 +1,9 @@
 var jstex = {
+    shift:function(a1,a2){
+	while(a1.length>0){
+	    a2.unshift(a1.pop());
+	}
+    },
     Command : function(name,expand){
 	var cmd = new Object();
 	cmd.name = name;
@@ -77,6 +82,43 @@ var jstex = {
 		idx++;
 		continue;
 	    }
+	    if(input[idx] == '#'){
+		tokens.push({ name:"#localVariable", index:input[idx+1] }); 
+		respectnewlines = 0;
+		respectblanks = false;
+		idx+=2;
+		continue;
+	    }
+	    if(input[idx] == '$'){
+		if(jstex.inMathMode){
+		    var tkn = jstex.commands["end"];
+		    jstex.inMathMode = false;
+		    respectblanks = true;
+		    respectnewlines = 0;
+		} else {
+		    var tkn = jstex.commands["begin"];
+		    jstex.inMathMode = true;
+		    respectblanks = false;
+		    respectnewlines = 2;
+		}
+		tokens.push(tkn);
+		tokens.push(["$"]);
+		idx++;
+	    }
+	    if(input[idx] == '-'){
+		if(input[idx+1] == '-'){
+		    if(input[idx+2] == '-'){
+			tokens.push(jstex.commands["textmdash"]);
+			idx+=3;
+		    } else {
+			tokens.push(jstex.commands["textndash"]);
+			idx+=2;
+		    }
+		    respectnewlines = 0;
+		    respectblanks = true;
+		    continue;
+		}
+	    }
 	    if(input[idx] == '\\'){
 		if(input[idx+1]===','){
 		    idx+=2;
@@ -87,12 +129,6 @@ var jstex = {
 		} else if(input[idx+1]==='-'){
 		    idx+=2;
 		    respectblanks = false;
-		    respectnewlines=0;
-		    continue;
-		} else if(input[idx+1]===' '){
-		    idx+=2;
-		    tokens.push(" ");
-		    respectblanks = true
 		    respectnewlines=0;
 		    continue;
 		} else if(input[idx+1]==='\\'){
@@ -173,8 +209,19 @@ var jstex = {
 	    var spurious = jstex.expand(preamble);
 	    console.log("spurious symbols from preamble: " + spurious);
 	    jstex.isParagraphOpen=false;
-	    return jstex.tex(source.substr(begindocument,enddocument-begindocument));
+	    var content = document.createElement("div");
+	    content.innerHTML=jstex.tex(source.substr(begindocument,enddocument-begindocument));
+	    content.className="jsTeX";
 	    jstex.cleanpars();
+	    if(MathJax){
+		var mathdivs = document.getElementsByClassName("MathJax");
+		console.log("MathJax found - executing on "+mathdivs.length+" items!");
+		for(var i=0; i<mathdivs.length; i++){
+		    console.log(mathdivs[i].id);
+		    MathJax.Hub.Queue(["Typeset",MathJax.Hub,mathdivs[i].id]);
+		}
+	    }	
+	    return content;
 	}
 	return "jsTeX error: missing begin/end document!"
     },
@@ -280,7 +327,22 @@ var jstex = {
 	console.log("ERROR: missing \\end{"+end+"}")
 	return out;
     },
-
+    expandLocalCopy:function(tokens,local){
+	var out = [];
+	var i=0;
+	while(i < tokens.length){
+	    var tkn = tokens[i];
+	    if(tkn.name == "#localVariable"){
+		out.push(local[tkn.index]);
+	    } else if(jstex.isArray(tkn)){
+		out.push(jstex.expandLocal(tkn,local));
+	    } else {
+		out.push(tkn);
+	    } 
+	    i++;
+	}
+	return out;
+    },
     setLength : function(name,val){
 	jstex.lengths[name]=val;
 	return "setting length "+name+"="+val;
@@ -315,6 +377,7 @@ var jstex = {
     counters : {
     },
     isParagraphOpen : true,
+    inMathMode : false,
     beginpar:function(){
 	if(!jstex.isParagraphOpen){
 	    jstex.isParagraphOpen = true;
@@ -359,7 +422,6 @@ jstex.newCommand("par",function(tokens){
     var retval = jstex.endpar();
 //    retval += "<span style='color:#FF0000'>\\par"+jstex.isParagraphOpen+"</span>";
     retval += jstex.beginpar();
-    console.log(retval);
     return retval;
 });
 jstex.newCommand("newline",function(tokens){return "<br>"});
@@ -465,20 +527,33 @@ jstex.newCommand("newcommand",function(tokens){
     var newcmd = tokens.shift();
     var cmdtkn = newcmd.shift();
     var arg = tokens.shift();
+    var argc = 0;
     if(arg.optArg){
-	var argno = int(arg);
+	var argc = int(arg);
 	arg = tokens.shift();
 	if(arg.optArg){
 	    var defoptarg = arg;
 	    arg = tokens.shift();
 	}
     }
-    var cmd = arg;
+    var cmddef = arg;
+    var cmdname = cmdtkn.name;
     if(!cmdtkn.isUndefined){
-	console.log(cmdtkn.name + " is already defined!");
+	console.log(cmdname + " is already defined!");
 	return "";
     }
-    console.log("\\newcommand\\"+cmdtkn.name+"... - call not yet implemented!");
+    console.log("\\newcommand\\"+cmdname+"... - call not yet implemented!");
+    console.log(argc,cmddef);
+    var cmd = jstex.Command(cmdname,function(tkns){
+	var argv=[];
+	for(var i=0; i<this.argc; i++){
+	    argv.push(tkns.shift());
+	}
+	var local = jstex.expandLocalCopy(this.definition);
+	jstex.shift(local,tkns);
+	return jstex.expand(tkns);
+    });
+    cmd.definition = cmddef;
     return "";
 });
 
@@ -487,7 +562,7 @@ jstex.newCommand("newenvironment",function(tokens){
     var envname = newenv.join("");
     var arg = tokens.shift();
     if(arg.optArg){
-	var argno = int(arg);
+	var argc = int(arg);
 	arg = tokens.shift();
 	if(arg.optArg){
 	    var defoptarg = arg;
@@ -502,7 +577,6 @@ jstex.newCommand("newenvironment",function(tokens){
 	console.log("environment "+envname + " is already defined!");
 	return "";
     }
-    console.log("\\newenvironment{"+envname+"}... - call not yet implemented!");
     var newenv = jstex.newEnvironment(envname,function(tkns){
 	var mytokens = jstex.readUntilEnd(tkns,this.name);
 	return "<span title='"+this.name+"'>"+jstex.expand(this.begin.concat(mytokens).concat(this.end))+"</span>";
@@ -529,7 +603,7 @@ jstex.newCommand("end",function(tokens){
     var env = jstex.environments[envname];
     var out = "";
     if(!env){
-	console.log("warning: encountered unknown end-environment "+envname);
+//	console.log("warning: encountered unknown end-environment "+envname);
     }
     return false;
 });
@@ -551,6 +625,8 @@ jstex.newCommand("endcsname",function(tokens){
 jstex.newCommand("glqq",function(tokens){return "&bdquo;"});
 jstex.newCommand("grqq",function(tokens){return "&ldquo;"});
 jstex.newCommand("euro",function(tokens){return "&euro;"});
+jstex.newCommand("textndash",function(tokens){return "&ndash;"});
+jstex.newCommand("textmdash",function(tokens){return "&mdash;"});
 jstex.newCommand("texttimes",function(tokens){return "&times;"});
 jstex.newCommand("dots",function(tokens){return "&hellip;"});
 jstex.newCommand("&",function(tokens){return "&amp;"});
@@ -572,4 +648,22 @@ jstex.ignoreCommand("geometry",1);
 // environments
 
 jstex.newEnvironment("center",function(tokens){return "<center>"+jstex.expand(tokens)+"</center>"});
+jstex.newEnvironment("$",function(tokens){
+    if(MathJax){
+	var d = new Date();
+	var t_millis = d.getTime()
+	var tkns = jstex.readUntilEnd(tokens,"$");
+	return "<div id='MathOutput_"+t_millis+"' class='MathJax'>"+tkns.join("")+"</div>";
+    } else {
+	return "<i>"+jstex.expand(tokens)+"</i>";
+    }
+    return "";
+});
+
 jstex.newEnvironment("verse",function(tokens){return "<div style='margin-top:10px; margin-bottom:10px; margin-left:30px;'>"+jstex.expand(tokens)+"</div>"});
+
+// extra commands
+
+jstex.newCommand("opening",function(){return "<div>";});
+jstex.newCommand("closing",function(){return "</div>";});
+				  
