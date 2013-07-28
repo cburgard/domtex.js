@@ -1,4 +1,11 @@
 var jstex = {
+    Command : function(name,expand){
+	var cmd = new Object();
+	cmd.name = name;
+	cmd.expand = expand;
+	jstex.commands[name]=cmd;
+	return cmd;
+    },
     findParenthesisMatch : function(input, openpar, closepar, idx){
 	var parstack = 0;
 	while(idx < input.length){
@@ -63,7 +70,7 @@ var jstex = {
 		continue;
 	    }
 	    if(input[idx] == '\n' || input[idx] == '\r'){
-		if(respectnewlines == 1) tokens.push('<br>');
+		if(respectnewlines == 1) tokens.push(jstex.commands['par']);
 		else if(respectblanks) tokens.push(' ');
 		respectnewlines++;
 		respectblanks = false;
@@ -102,7 +109,7 @@ var jstex = {
 		if(!cmd) tokens.push(jstex.undefcommand(cmdname));
 		else tokens.push(cmd),
 		respectblanks = false;
-		respectnewlines=0;
+		respectnewlines=2;
 		idx=endidx;
 		continue;
 	    }
@@ -140,7 +147,7 @@ var jstex = {
 
     },
     undefcommand : function(name){
-	var cmd = new Object();
+	var cmd = jstex.Command(name,undefined);
 	cmd.name = name;
 	cmd.isUndefined = true;
 	return cmd;
@@ -155,56 +162,93 @@ var jstex = {
     findenvend : function(source,envname){
 	return source.indexOf("\\end{"+envname+"}");
     },
-    isArray : function(a){
-	if( Object.prototype.toString.call( a ) === '[object Array]' ) {
-	    return true;
-	}
-	return false;
+    isArray : function(a) {
+	return (!!a) && (a.constructor === Array);
     },
     texdoc:function(source){
 	var begindocument = jstex.findenvbegin(source,"document");
 	var enddocument   = jstex.findenvend(source,"document");
 	if(begindocument >= 0 && enddocument >= 0){
 	    var preamble = jstex.tokenize(source.substr(0,begindocument-16));
-	    var spurious = jstex.process(preamble);
+	    var spurious = jstex.expand(preamble);
 	    console.log("spurious symbols from preamble: " + spurious);
+	    jstex.isParagraphOpen=false;
 	    return jstex.tex(source.substr(begindocument,enddocument-begindocument));
+	    jstex.cleanpars();
 	}
 	return "jsTeX error: missing begin/end document!"
     },
     tex2html:function(s){
+	if(s===undefined)return "<span title='undefined'>"+jstex.unknownCSalias+"</span>";
+	if(s===false)    return "<span title='false'>"+jstex.unknownCSalias+"</span>";
 	if(s=="~") return " ";
 	return s;
     },
-    process:function(tokens){
+    expandNumber:function(tokens){
+	var result = "";
+	while(tokens.length > 0){
+	    var tkn =  jstex.expandNext(tokens);
+	    if(isNaN(result+tkn)){
+		if(result.length < 1){
+		    console.log("invalid numeric value: " +result+tkn);
+		    return "0";
+		} else break;
+	    }
+	    result += tkn;
+	}
+	return result;
+    },
+    expandUnit:function(tokens){
+	var result = "";
+	while(tokens.length > 0 && result.length < 2){
+	    var tkn = jstex.expandNext(tokens);
+	    result += tkn;
+	}
+	return result;
+    },
+    expandLength:function(tokens){
+	var number = jstex.expandNumber(tokens);
+	var unit = jstex.expandUnit(tokens);
+	return number+unit;
+    },
+    expandNext:function(tokens){
+	if(jstex.isArray(tokens)){
+	    var tkn = tokens.shift();
+	} else {
+	    var tkn = tokens;
+	}
+	if(tkn === undefined){
+	    console.log("sorry, encountered invalid token");
+	    return undefined;
+	}
+	if(tkn.isUndefined){
+	    console.log("undefined control sequence: " +tkn.name);
+	    return "<span title='"+tkn.name+"'>"+jstex.unknownCSalias+"</span>";
+	    return undefined;
+	} 
+	if(tkn.expand !== undefined){
+	    var result = tkn.expand(tokens);
+	    return result;
+	} else {
+	    if(jstex.isArray(tkn))
+		return jstex.expand(tkn);
+	    else 
+		return jstex.tex2html(tkn);
+	}
+    },
+    expand:function(tokens){
 	var out = "";
 	if(tokens === undefined)
-	    return out;
-	var tkn = undefined;
-	var prev = " ";
+	    return "";
 	while(tokens.length > 0){
-	    prev += tkn;
-	    tkn = tokens.shift();
-	    if(tkn === undefined){
-		console.log("sorry, encountered invalid token after " + prev);
+	    var result = jstex.expandNext(tokens);
+	    if(result === false){
+		return out;
+	    }
+	    if(result === undefined){
 		continue;
 	    }
-	    if(tkn.isUndefined){
-		console.log("undefined control sequence: " +tkn.name);
-		out += "<span title='"+tkn.name+"'>"+jstex.unknownCSalias+"</span>";
-		continue;
-	    } 
-	    if(tkn.exec !== undefined){
-		var result = tkn.exec(tokens);
-		if(result === false)
-		    return out;
-		out += result;
-	    } else {
-		if(jstex.isArray(tkn))
-		    out += jstex.process(tkn);
-		else 
-		    out += jstex.tex2html(tkn);
-	    }
+	    out += result;
 	}
 	return out;
     },
@@ -215,29 +259,49 @@ var jstex = {
 	} else {
 	    tokens = source;
 	}
-	return jstex.process(tokens);
+	return jstex.expand(tokens);
     },
 
-    newCommand : function(name,exec){
-	var cmd = new Object();
-	cmd.name = name;
-	cmd.exec = exec;
-	jstex.commands[name]=cmd;
+    readUntilEnd:function(tokens,end){
+	var out = [];
+	while(tokens.length > 0){
+	    var tkn = tokens.shift();
+	    if(tkn.name != "end"){
+		out.push(tkn);
+		continue;
+	    }
+	    var nexttkn = tokens.shift();
+	    if(jstex.expand(nexttkn) == end){
+		return out;
+	    } 
+	    out.push(tkn);
+	    out.push(nexttkn);
+	}
+	console.log("ERROR: missing \\end{"+end+"}")
+	return out;
     },
-    newEnvironment : function(name,wrap){
+
+    setLength : function(name,val){
+	jstex.lengths[name]=val;
+	return "setting length "+name+"="+val;
+    },
+
+    newCommand : function(name,expand){
+	return jstex.Command(name,expand);
+    },
+    newEnvironment : function(name,expand){
 	var env = new Object();
 	env.name = name;
-	env.wrap=wrap;
+	env.expand=expand;
 	jstex.environments[name]=env;
+	return env;
     },
     ignoreCommand : function(name,argc){
 	if(!argc) argc=0;
-	var cmd = new Object();
-	cmd.name = name;
-	cmd.exec = function(tokens){for(var i=0; i<argc; i++) tokens.shift();};
-	jstex.commands[name]=cmd;
+	expand = function(tokens){for(var i=0; i<this.argc; i++) tokens.shift();};
+	var cmd = jstex.Command(name,expand);
+	cmd.argc = argc;
     },
-    
     tags : {
 	section : "h1",
 	subsection : "h2",
@@ -249,6 +313,29 @@ var jstex = {
     },
 
     counters : {
+    },
+    isParagraphOpen : true,
+    beginpar:function(){
+	if(!jstex.isParagraphOpen){
+	    jstex.isParagraphOpen = true;
+	    return "<p name='texpar'>";
+	}
+	return "";
+    },
+    cleanpars:function(){
+	var pars = document.getElementsByName('texpar');
+	for(var i=0;i<pars.length; i++){
+	    if(pars[i].innerHTML.trim().length == 0)
+		pars[i].parentNode.removeChild(pars[i]);
+	}
+    },
+    endpar:function(){
+	if(jstex.isParagraphOpen){
+	    jstex.isParagraphOpen = false;
+	    return "</p>";
+	}
+	jstex.isParagraphOpen = false;
+	return "";
     },
 
     beginsWith : function(str,begin){
@@ -264,22 +351,76 @@ var jstex = {
     unknownCSalias : "&#65533;"
 
 }
+jstex.Command.prototype.toString = function(){return this.name};
+
 
 // basic symbols
-jstex.newCommand("par",function(tokens){return "<br>"});
+jstex.newCommand("par",function(tokens){
+    var retval = jstex.endpar();
+//    retval += "<span style='color:#FF0000'>\\par"+jstex.isParagraphOpen+"</span>";
+    retval += jstex.beginpar();
+    console.log(retval);
+    return retval;
+});
 jstex.newCommand("newline",function(tokens){return "<br>"});
 
 // basic commmands
-jstex.newCommand("textit",function(tokens){return "<i>"+jstex.tex(tokens.shift())+"</i>"});
 jstex.newCommand("url",function(tokens){ var link = tokens.shift().join(""); return "<a href='"+jstex.linkify(link)+"'>"+link+"</a>";});
+
+// sectioning
+var sections = ["section","subsection","subsubsection"];
+for(var i=0; i<sections.length; i++){
+    var tag = jstex.tags[sections[i]];
+    jstex.newCommand(sections[i],function(tokens){
+	var retval = jstex.endpar();
+	var retval = "<"+tag+">"+jstex.tex(tokens.shift())+"</"+tag+">";
+	retval += jstex.beginpar();
+	return retval;
+    });
+};
+
+
+// font choices
+jstex.newCommand("textit",function(tokens){return "<i>"+jstex.tex(tokens.shift())+"</i>"});
 jstex.newCommand("textbf",function(tokens){return "<b>"+jstex.tex(tokens.shift())+"</b>"});
 jstex.newCommand("textsc",function(tokens){return "<span style='font-variant:small-caps'>"+jstex.tex(tokens.shift())+"</span>"});
-jstex.newCommand("section",function(tokens){return "<"+jstex.tags["section"]+">"+jstex.tex(tokens.shift())+"</"+jstex.tags["section"]+">"});
-jstex.newCommand("subsection",function(tokens){return "<"+jstex.tags["subsection"]+">"+jstex.tex(tokens.shift())+"</"+jstex.tags["subsection"]+">"});
-jstex.newCommand("subsubsection",function(tokens){return "<"+jstex.tags["subsubsection"]+">"+jstex.tex(tokens.shift())+"</"+jstex.tags["subsubsection"]+">"});
+jstex.newCommand("bfseries",function(tokens){return "<b>"+jstex.expand(tokens)+"</b>"});
+jstex.newCommand("itshape",function(tokens){return "<i>"+jstex.expand(tokens)+"</i>"});
+jstex.newCommand("twistshape",function(tokens){return "<i>"+jstex.expand(tokens)+"</i>"});
+jstex.newCommand("sqrcfamily",function(tokens){return "<span style='font-variant:small-caps'>"+jstex.expand(tokens)+"</span>"});
+
+jstex.setLength("tiny","6pt");
+jstex.setLength("footnotesize","8pt");
+jstex.setLength("small","10pt");
+jstex.setLength("normalsize","12pt");
+jstex.setLength("large","14pt");
+jstex.setLength("Large","16pt");
+jstex.setLength("LARGE","18pt");
+jstex.setLength("huge","20pt");
+jstex.setLength("Huge","22pt");
+jstex.setLength("HUGE","24pt");
+var fontsizes = ["tiny","footnotesize","small","normalsize","large","Large","LARGE","huge","Huge","HUGE"];
+for(var i=0; i<fontsizes.length; i++){
+    var fs = fontsizes[i];
+    jstex.newCommand(fontsizes[i],function(tokens){return "<span style='font-size:"+jstex.lengths[fs]+"'>"+jstex.expand(tokens)+"</span>"});
+}
+
+
+// boxes
 jstex.newCommand("mbox",function(tokens){return "<span style='white-space:nowrap'>"+jstex.tex(tokens.shift())+"</span>"});
 jstex.newCommand("fbox",function(tokens){return "<span style='white-space:nowrap; border:"+jstex.lengths.frameborder+"'>"+jstex.tex(tokens.shift())+"</span>"});
 jstex.newCommand("parbox",function(tokens){return "<span'>"+jstex.tex(tokens.shift())+"</span>"});
+
+// spacing
+jstex.setLength("bigskip","1em");
+jstex.setLength("smallskip","0.5em");
+jstex.newCommand("bigskip",function(tokens){return "<div style='margin:"+jstex.lengths["bigskip"]+"'></div>"});
+jstex.newCommand("smallskip",function(tokens){return "<div style='margin:"+jstex.lengths["smallskip"]+"'></div>"});
+jstex.newCommand("vspace",function(tokens){return "<div style='margin:"+jstex.expandNext(tokens)+"'></div>"});
+jstex.newCommand("vskip",function(tokens){return "<div style='margin:"+jstex.expandLength(tokens)+"'></div>"});
+
+
+
 
 // special commands
 
@@ -308,10 +449,7 @@ jstex.newCommand("documentclass",function(tokens){
 });
 
 jstex.newCommand("setlength",function(tokens){
-    var lengthname = tokens.shift().shift().name;
-    var lengthval = tokens.shift()
-    jstex.lengths[lengthname]=lengthval;
-    console.log("setting length "+lengthname+"="+lengthval);
+    console.log(jstex.setLength(tokens.shift().shift().name,jstex.expand(tokens.shift())));
     return "";
 });
 
@@ -337,11 +475,40 @@ jstex.newCommand("newcommand",function(tokens){
     }
     var cmd = arg;
     if(!cmdtkn.isUndefined){
-	console.log(cmdtkn);
 	console.log(cmdtkn.name + " is already defined!");
 	return "";
     }
     console.log("\\newcommand\\"+cmdtkn.name+"... - call not yet implemented!");
+    return "";
+});
+
+jstex.newCommand("newenvironment",function(tokens){
+    var newenv = tokens.shift();
+    var envname = newenv.join("");
+    var arg = tokens.shift();
+    if(arg.optArg){
+	var argno = int(arg);
+	arg = tokens.shift();
+	if(arg.optArg){
+	    var defoptarg = arg;
+	    arg = tokens.shift();
+	}
+    }
+    var begin = tokens.shift();
+    while(end == undefined || end == false || end == ' ' || end == "\n"){
+	var end = tokens.shift();
+    }
+    if(jstex.environments[envname] != undefined){
+	console.log("environment "+envname + " is already defined!");
+	return "";
+    }
+    console.log("\\newenvironment{"+envname+"}... - call not yet implemented!");
+    var newenv = jstex.newEnvironment(envname,function(tkns){
+	var mytokens = jstex.readUntilEnd(tkns,this.name);
+	return "<span title='"+this.name+"'>"+jstex.expand(this.begin.concat(mytokens).concat(this.end))+"</span>";
+    });
+    newenv.begin=begin;
+    newenv.end=end;
     return "";
 });
 
@@ -350,19 +517,11 @@ jstex.newCommand("begin",function(tokens){
     var env = jstex.environments[envname];
     if(!env){
 	console.log("warning: encountered unknown begin-environment "+envname);
+	return "<span title='"+envname+"'>"+jstex.expand(tokens)+"</span>";
     } else {
-	return env.wrap(tokens);
+	return env.expand(tokens);
     }
-    return jstex.process(tokens);
-});
-
-jstex.newCommand("csname",function(tokens){
-    tokens.shift()
-    return jstex.process(tokens);
-});
-
-jstex.newCommand("endcsname",function(tokens){
-    return false;
+    return "";
 });
 
 jstex.newCommand("end",function(tokens){
@@ -375,6 +534,18 @@ jstex.newCommand("end",function(tokens){
     return false;
 });
 
+jstex.newCommand("csname",function(tokens){
+    var tkn = undefined;
+    while(tkn != jstex.commands["endcsname"]){
+	tkn = tokens.shift()
+    }
+    return "";
+});
+
+jstex.newCommand("endcsname",function(tokens){
+    return false;
+});
+
 // extra symbols
 
 jstex.newCommand("glqq",function(tokens){return "&bdquo;"});
@@ -382,7 +553,6 @@ jstex.newCommand("grqq",function(tokens){return "&ldquo;"});
 jstex.newCommand("euro",function(tokens){return "&euro;"});
 jstex.newCommand("texttimes",function(tokens){return "&times;"});
 jstex.newCommand("dots",function(tokens){return "&hellip;"});
-jstex.newCommand("bigskip",function(tokens){return "<div style='margin:1em'></div>"});
 jstex.newCommand("&",function(tokens){return "&amp;"});
 
 
@@ -401,4 +571,5 @@ jstex.ignoreCommand("geometry",1);
 
 // environments
 
-jstex.newEnvironment("center",function(tokens){return "<center>"+jstex.process(tokens)+"</center>"});
+jstex.newEnvironment("center",function(tokens){return "<center>"+jstex.expand(tokens)+"</center>"});
+jstex.newEnvironment("verse",function(tokens){return "<div style='margin-top:10px; margin-bottom:10px; margin-left:30px;'>"+jstex.expand(tokens)+"</div>"});
