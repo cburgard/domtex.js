@@ -586,6 +586,9 @@ jstex.newCommand("newenvironment",function(tokens){
     return "";
 });
 
+
+
+
 jstex.newCommand("begin",function(tokens){
     var envname = tokens.shift().join("");
     var env = jstex.environments[envname];
@@ -661,6 +664,23 @@ jstex.newEnvironment("$",function(tokens){
 });
 
 jstex.newEnvironment("verse",function(tokens){return "<div style='margin-top:10px; margin-bottom:10px; margin-left:30px;'>"+jstex.expand(tokens)+"</div>"});
+
+jstex.newCommand("includeversion",function(tokens){
+    var envname = tokens.shift().join("");
+    console.log("including version '" + envname +"'");
+    jstex.newEnvironment(envname,function(tok){
+	return "<span>"+jstex.expand(tok)+"<span>";
+    });
+});
+
+jstex.newCommand("excludeversion",function(tokens){
+    var envname = tokens.shift().join("");
+    console.log("excluding version '" + envname +"'");
+    jstex.newEnvironment(envname,function(tok){
+	return "<span style='display=none'>"+jstex.expand(tok)+"<span>";
+    });
+});
+
 
 // extra commands
 
