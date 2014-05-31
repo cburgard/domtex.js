@@ -328,10 +328,16 @@ var jstex = {
 	console.log("number:",buffer.textContent);
 	return result;
     },
-    readNext:function(tokens,target){
+    readNext:function(tokens){
 	var buffer = document.createElement("div");
 	jstex.extendDOM(buffer);
 	jstex.expandNext(tokens,buffer);
+	return buffer.innerHTML;
+    },
+    read:function(tokens){
+	var buffer = document.createElement("div");
+	jstex.extendDOM(buffer);
+	jstex.expand(tokens,buffer);
 	return buffer.innerHTML;
     },
     readUnit:function(tokens){
@@ -414,13 +420,11 @@ var jstex = {
 	    return true;
 	} else if(token.expand !== undefined){
 	    var retval = token.expand(tokens,target);
-	    if(!retval){
+	    if(retval == undefined){
 		console.log("the command '"+token.name+"' reported an error during expansion!")
+		return true;
 	    }
-	    if(token.name == "end"){
-		return false;
-	    }
-	    return true;
+	    return retval;
 	} else {
 	    console.log("ERROR: cannot process token of type '"+typeof token+"':",token);
 	    return undefined;
@@ -527,9 +531,32 @@ jstex.ignoreCommand("newlength");
 jstex.ignoreCommand("newcounter");
 jstex.ignoreCommand("geometry",1);
 		 
+//// some tricky things
+jstex.newCommand("url",function(tokens,parent){ 
+    var link = jstex.readNext(tokens);
+    parent.createChild("a",{"href":linkify(link)}).innerHTML=link;
+    return true;
+});
+jstex.newCommand("author",function(tokens,parent){ 
+    var cmd = jstex.newCommand("theauthor",function(toks,p){
+	return jstex.expand(this.content,p);
+    });
+    cmd.content=tokens.shift();
+    return true;
+});
 
-//// basic commmands
-jstex.newCommand("url",function(tokens){ var link = tokens.shift().join(""); return "<a href='"+jstex.linkify(link)+"'>"+link+"</a>";});
+jstex.newCommand("title",function(tokens,parent){ 
+    var cmd = jstex.newCommand("thetitle",function(toks,p){
+	return jstex.expand(this.content,p);
+    });
+    cmd.content=tokens.shift();
+    return true;
+});
+
+jstex.newCommand("maketitle",function(tokens,parent){ 
+    document.title = jstex.read(jstex.commands["thetitle"].content);
+    return true;
+});
 
 //// sectioning
 var sections = ["section","subsection","subsubsection"];
@@ -590,10 +617,16 @@ jstex.newCommand("begin",function(tokens,target){
     if(!env){
 	console.log("warning: encountered unknown begin-environment '"+envname+"'");
 	return jstex.expand(tokens,target.createChild("span",{"title":envname}));
-    } else {
-	console.log("entering environment '"+envname+"'");
-	return env.expand(tokens,target);
     }
+    if(env.beginTokens){
+	var beginToks = jstex.cloneArray(env.beginTokens);
+	while(beginToks.length > 0){
+	    tokens.unshift(beginToks[beginToks.length-1]);
+	    beginToks.pop();
+	}
+    }
+    console.log("entering environment '"+envname+"'");
+    return env.expand(tokens,target);
 });
 
 jstex.newCommand("end",function(tokens,target){
@@ -603,8 +636,16 @@ jstex.newCommand("end",function(tokens,target){
 	console.log("warning: encountered unknown end-environment '"+envname+"'");
     } else {
 	console.log("leaving environment '"+envname+"'");
+	if(env.endTokens){
+	    var endtokens = jstex.cloneArray(env.endTokens);
+	    while(endtokens.length > 0){
+		var tok = endtokens[endtokens.length-1];
+		endtokens.pop();
+		if(tok) tokens.unshift(tok);
+	    }
+	}
     }
-    return true;
+    return false;
 });
 
 jstex.newCommand("csname",function(tokens,parent){
@@ -639,15 +680,7 @@ jstex.newCommand("newenvironment",function(tokens,parent){
     }
     env.expand=function(tokens,target){
 	var child = target.createChild("span",{"title":this.name});
-	var beginToks = jstex.cloneArray(this.beginTokens);
-	var endToks = jstex.cloneArray(this.endTokens);
-	while(beginToks.length > 0){
-	    tokens.unshift(beginToks[beginToks.length-1]);
-	    beginToks.pop();
-	}
-	jstex.expand(tokens,child);
-//	if(endToks)   jstex.expand(endToks,child);
-	return true;
+	return jstex.expand(tokens,child);
     }
     return true;
 });
@@ -655,7 +688,7 @@ jstex.newCommand("newenvironment",function(tokens,parent){
 //// environments
 
 jstex.newEnvironment("center",function(tokens,target){return jstex.expand(tokens,target.createChild("div",{"style":{"text-align":"center"}}))});
-jstex.newEnvironment("verse",function(tokens,target){return jstex.expand(tokens,target.createChild("div",{"style":{"margin-top":"10px","margin-bottom":"10px","margin-left":"30px"}}))});
+jstex.newEnvironment("verse",function(tokens,target){return jstex.expand(tokens,target.createChild("div",{"title":"verse","style":{"margin-top":"10px","margin-bottom":"10px","margin-left":"30px"}}))});
 
 jstex.newEnvironment("$",function(tokens,target){
     if(MathJax){
