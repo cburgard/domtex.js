@@ -2,13 +2,39 @@ var jstex = {
     /////////////////////////////////////////////////////////////
     // The Command class holds a single TeX primitive or command
     ////////////////////////////////////////////////////////////
-    Command : function(name,expand){
-	var cmd = new Object();
-	cmd.name = name;
-	cmd.expand = expand;
-	jstex.commands[name]=cmd;
-	return cmd;
+    addCommand:function(cmd){
+	jstex.scopes[0].commands[cmd.name] = cmd;
     },
+    newCommand : function(name,expand){
+	var cmd = jstex.getCommand(name);
+	if(cmd){
+	    if(cmd.isUndefined){
+		cmd.isUndefined = false;
+		cmd.expand = expand;
+		return;
+	    } else {
+		console.log("command '"+name+"' is already defined!");
+		return cmd;
+	    }
+	} else {
+	    console.log("creating command '"+name+"' in scope "+jstex.scopes.length);
+	    cmd = new Object();
+	    cmd.name = name;
+	    if(expand){
+		cmd.expand = expand;
+		cmd.isUndefined = false;
+	    } else {
+		cmd.isUndefined = true;
+	    }
+	    cmd.toString = function(){return this.name};
+	    jstex.addCommand(cmd);
+	    return cmd;
+	}
+    },
+    getCommand:function(name){
+	return jstex.scopes[0].commands[name];
+    },
+
     /////////////////////////////////////////////////////////////
     // The Element class converts meta-information to an actual DOM
     // element
@@ -18,7 +44,7 @@ var jstex = {
 	obj.appendText = jstex.appendText;
     },
     appendText:function(text){
-	if(jstex.aliases[text]) text = jstex.aliases[text];
+	if(jstex.scopes[0].aliases[text]) text = jstex.scopes[0].aliases[text];
 	if(this.lastChild && this.lastChild.appendData !== undefined){
 	    this.lastChild.appendData(text);
 	} else {
@@ -33,6 +59,13 @@ var jstex = {
 		jstex.copyJSON(source[key],target[key]);
 	    }
 	}
+    },
+    copyObject:function(obj){
+	retval = {};
+	for(key in obj){
+	    retval[key] = obj[key];
+	}
+	return retval;
     },
     cloneArray:function(a){
 	var newArr = [];
@@ -57,37 +90,66 @@ var jstex = {
 	jstex.extendDOM(child);
 	return child;
     },
-    commands : new Object(),
-    environments : new Object(),
-    tags : {
-	section : "h1",
-	subsection : "h2",
-	subsubsection : "h3"
+    scopes : [ {
+	commands : {},
+	environments : {},
+	counters : {
+	},
+	lengths : {
+	    frameborder : "1px"
+	},
+	isParagraphOpen : false,
+	inMathMode : false,
+	tags : {
+	    section : "h1",
+	    subsection : "h2",
+	    subsubsection : "h3"
+	},
+	aliases : {
+	    "~" : " "
+	}
+    } ],
+    enterScope:function(){
+	curscope = jstex.scopes[0];
+	scope = {
+	    commands :     jstex.copyObject(curscope.commands),
+	    environments : jstex.copyObject(curscope.environments),
+	    counters :     jstex.copyObject(curscope.counters),
+	    lengths :      jstex.copyObject(curscope.lengths),
+	    isParagraphOpen : false,
+	    inMathMode : false,
+	    tags : curscope.tags,
+	    aliases : curscope.aliases
+	}
+	jstex.scopes.unshift(scope);
+	console.log("entering scope "+jstex.scopes.length);
     },
-    lengths : {
-	frameborder : "1px"
+    leaveScope:function(){
+	if(jstex.scopes.length > 0){
+	    console.log("leaving scope "+jstex.scopes.length);
+	    jstex.scopes.shift()
+	} else {
+	    console.log("ERROR in leaveScope: stack is empty!")
+	}
     },
-    aliases : {
-	"~" : " "
+    getEnvironment:function(name){
+	return jstex.scopes[0].environments[name];
+    },
+    addEnvironment:function(env){
+	jstex.scopes[0].environments[env.name] = env;
+    },
+    getLength:function(name){
+	return jstex.scopes[0].lengths[name];
     },
     buffer:document.createElement('div'),
     getHTMLAlias:function(code){
-	if(!jstex.aliases[code]){
-	    jstex.aliases[code] = jstex.decodeHTMLEntities(code);
+	if(!jstex.scopes[0].aliases[code]){
+	    jstex.scopes[0].aliases[code] = jstex.decodeHTMLEntities(code);
 	}
-	return jstex.aliases[code];
+	return jstex.scopes[0].aliases[code];
     },
-    counters : {
-    },
-    isParagraphOpen : false,
-    inMathMode : false,
-    unknownCSalias : "&#65533;",
-    undefcommand : function(name){
-	var cmd = jstex.Command(name,undefined);
-	cmd.name = name;
-	cmd.isUndefined = true;
-	return cmd;
-    },
+//    unknownCSalias : "&#65533;",
+    unknownCSalias : "<svg color-rendering='auto' color-interpolation='auto' text-rendering='auto' stroke-miterlimit='10' shape-rendering='auto' image-rendering='auto' version='1.1' width='1.5em' height='1.5em' preserveAspectRatio='xMinYMin meet' viewBox='0 0 240 240' style='font-size:12px;font-style:normal;font-weight:normal;fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:1;stroke-linecap:square;stroke-linejoin:miter;stroke-miterlimit:10;stroke-opacity:1;stroke-dasharray:none;stroke-dashoffset:0;font-family:Dialog'> <defs id='genericDefs' /> <g id='g5' transform='translate(-24.4688,-152.7188)'> <g id='g7'> <path  d='M 263.5312,272.25 144,391.7812 24.4688,272.25 144,152.7188 263.5312,272.25 z m -76.9218,-30.2344 q 0,-16.1718 -11.9532,-26.9297 -11.9531,-10.7578 -29.1093,-10.7578 -20.6719,0 -36,6.3281 l -2.5313,25.1719 q 11.6719,-7.4531 25.7344,-7.4531 10.5469,0 17.4375,5.7656 6.8906,5.7656 6.8906,15.1875 0,10.2657 -11.8828,25.9453 -11.8828,15.6797 -11.8828,31.9922 l 21.375,0 q 0,-7.5937 8.2969,-17.8594 14.0625,-17.4374 15.3281,-19.5468 8.2969,-13.2188 8.2969,-27.8438 z m -26.2969,110.1094 0,-29.5312 -32.625,0 0,29.5312 32.625,0 z'  style='stroke:none' /> </g> </g> </svg>",
     isArray : function(a) {
 	return (!!a) && (a.constructor === Array);
     },
@@ -188,7 +250,7 @@ var jstex = {
 	    }
 	    if(input[idx] == '\n' || input[idx] == '\r'){
 		if(respectnewlines == 1){
-		    tokens.push(jstex.commands['par']);
+		    tokens.push(jstex.getCommand('par'));
 		} else if(respectblanks){
 		    tokens.push(' ');
 		}
@@ -206,12 +268,12 @@ var jstex = {
 	    }
 	    if(input[idx] == '$'){
 		if(jstex.inMathMode){
-		    var tkn = jstex.commands["end"];
+		    var tkn = jstex.getCommand("end");
 		    jstex.inMathMode = false;
 		    respectblanks = true;
 		    respectnewlines = 0;
 		} else {
-		    var tkn = jstex.commands["begin"];
+		    var tkn = jstex.getCommand("begin");
 		    jstex.inMathMode = true;
 		    respectblanks = false;
 		    respectnewlines = 2;
@@ -224,10 +286,10 @@ var jstex = {
 	    if(input[idx] == '-'){
 		if(input[idx+1] == '-'){
 		    if(input[idx+2] == '-'){
-			tokens.push(jstex.commands["textmdash"]);
+			tokens.push(jstex.getCommand("textmdash"));
 			idx+=3;
 		    } else {
-			tokens.push(jstex.commands["textndash"]);
+			tokens.push(jstex.getCommand("textndash"));
 			idx+=2;
 		    }
 		    respectnewlines = 0;
@@ -249,7 +311,7 @@ var jstex = {
 		    continue;
 		} else if(input[idx+1]==='\\'){
 		    idx+=2;
-		    tokens.push(jstex.commands["newline"]);
+		    tokens.push(jstex.getCommand("newline"));
 		    respectblanks = false;
 		    respectnewlines=0;
 		    continue;
@@ -257,9 +319,9 @@ var jstex = {
 		var endidx  = jstex.findNextOf(input,"\\{[-\t \n\r%",idx+1);
 		if(endidx < 0) endidx = input.length;
 		var cmdname = input.substr(idx+1,endidx-idx-1);
-		var cmd     = jstex.commands[cmdname];
-		if(!cmd) tokens.push(jstex.undefcommand(cmdname));
-		else tokens.push(cmd),
+		var cmd     = jstex.getCommand(cmdname);
+		if(cmd) tokens.push(cmd);
+		else tokens.push(jstex.newCommand(cmdname,undefined));
 		respectblanks = false;
 		respectnewlines=2;
 		idx=endidx;
@@ -469,35 +531,30 @@ var jstex = {
     },
     tex:function(source,target){
 	var tokens = jstex.tokenize(source);
-	console.log(tokens);
 	jstex.expand(tokens,target);
     },
     // a couple of TeX primitives need to be hardcoded
     setLength : function(name,val){
-	jstex.lengths[name]=val;
+	jstex.scopes[0].lengths[name] = val;
 	return "setting length "+name+"="+val;
-    },
-    newCommand : function(name,expand){
-	return jstex.Command(name,expand);
     },
     newEnvironment : function(name,expand){
 	var env = new Object();
 	env.name = name;
 	env.expand=expand;
-	jstex.environments[name]=env;
+	jstex.addEnvironment(env);
 	return env;
     },
     ignoreCommand : function(name,argc){
 	if(!argc) argc=0;
 	expand = function(tokens,parent){for(var i=0; i<this.argc; i++) tokens.shift(); return true;};
-	var cmd = jstex.Command(name,expand);
+	var cmd = jstex.newCommand(name,expand);
 	cmd.argc = argc;
     },
 
 
 
 }
-jstex.Command.prototype.toString = function(){return this.name};
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
@@ -554,14 +611,14 @@ jstex.newCommand("title",function(tokens,parent){
 });
 
 jstex.newCommand("maketitle",function(tokens,parent){ 
-    document.title = jstex.read(jstex.commands["thetitle"].content);
+    document.title = jstex.read(jstex.getCommand("thetitle").content);
     return true;
 });
 
 //// sectioning
 var sections = ["section","subsection","subsubsection"];
 for(var i=0; i<sections.length; i++){
-    var tag = jstex.tags[sections[i]];
+    var tag = jstex.scopes[0].tags[sections[i]];
     jstex.newCommand(sections[i],function(tokens,parent){
 	return jstex.expandNext(tokens,parent.createChild(tag));
     });
@@ -589,7 +646,7 @@ jstex.setLength("HUGE","24pt");
 var fontsizes = ["tiny","footnotesize","small","normalsize","large","Large","LARGE","huge","Huge","HUGE"];
 for(var i=0; i<fontsizes.length; i++){
     var fs = fontsizes[i];
-    jstex.newCommand(fontsizes[i],function(tokens,parent){return jstex.expand(tokens,parent.createChild("span",{"style":{"font-size":jstex.lengths[fs]}}));});
+    jstex.newCommand(fontsizes[i],function(tokens,parent){return jstex.expand(tokens,parent.createChild("span",{"style":{"font-size":jstex.getLength(fs)}}));});
 }
 //
 //
@@ -601,8 +658,8 @@ for(var i=0; i<fontsizes.length; i++){
 //// spacing
 jstex.setLength("bigskip","1em");
 jstex.setLength("smallskip","0.5em");
-jstex.newCommand("bigskip",  function(tokens,parent){parent.createChild("div",{"style":{"margin":jstex.lengths["bigskip"]  }}); return true;});
-jstex.newCommand("smallskip",function(tokens,parent){parent.createChild("div",{"style":{"margin":jstex.lengths["smallskip"]}}); return true;});
+jstex.newCommand("bigskip",  function(tokens,parent){parent.createChild("div",{"style":{"margin":jstex.getLength("bigskip")  }}); return true;});
+jstex.newCommand("smallskip",function(tokens,parent){parent.createChild("div",{"style":{"margin":jstex.getLength("smallskip")}}); return true;});
 jstex.newCommand("vspace",   function(tokens,parent){parent.createChild("div",{"style":{"margin":jstex.readLength(tokens)}}); return true});
 jstex.newCommand("vskip",    function(tokens,parent){parent.createChild("div",{"style":{"margin":jstex.readLength(tokens)}}); return true});
 
@@ -613,7 +670,8 @@ jstex.newCommand("begin",function(tokens,target){
     jstex.buffer.innerHTML="";
     jstex.expandNext(tokens,jstex.buffer);
     var envname = jstex.buffer.innerHTML;
-    var env = jstex.environments[envname];
+    var env = jstex.getEnvironment(envname);
+    jstex.enterScope();
     if(!env){
 	console.log("warning: encountered unknown begin-environment '"+envname+"'");
 	return jstex.expand(tokens,target.createChild("span",{"title":envname}));
@@ -631,7 +689,7 @@ jstex.newCommand("begin",function(tokens,target){
 
 jstex.newCommand("end",function(tokens,target){
     var envname = jstex.readNext(tokens);
-    var env = jstex.environments[envname];
+    var env = jstex.getEnvironment(envname);
     if(!env){
 	console.log("warning: encountered unknown end-environment '"+envname+"'");
     } else {
@@ -645,6 +703,7 @@ jstex.newCommand("end",function(tokens,target){
 	    }
 	}
     }
+    jstex.leaveScope();
     return false;
 });
 
@@ -661,7 +720,7 @@ jstex.newCommand("endcsname",function(tokens,parent){
 
 jstex.newCommand("newenvironment",function(tokens,parent){
     var envname = jstex.readNext(tokens);
-    if(jstex.environments[envname] != undefined){
+    if(jstex.getEnvironment(envname) != undefined){
 	console.log("environment "+envname + " is already defined!");
 	return true;
     }
@@ -669,7 +728,6 @@ jstex.newCommand("newenvironment",function(tokens,parent){
     var env = new Object();
     env.name = envname;
     env.expand=expand;
-    jstex.environments[envname]=env;
     env.beginTokens = undefined;
     while(!jstex.isArray(env.beginTokens)){
 	env.beginTokens = tokens.shift();
@@ -682,6 +740,7 @@ jstex.newCommand("newenvironment",function(tokens,parent){
 	var child = target.createChild("span",{"title":this.name});
 	return jstex.expand(tokens,child);
     }
+    jstex.addEnvironment(env);
     return true;
 });
 
@@ -689,6 +748,10 @@ jstex.newCommand("newenvironment",function(tokens,parent){
 
 jstex.newEnvironment("center",function(tokens,target){return jstex.expand(tokens,target.createChild("div",{"style":{"text-align":"center"}}))});
 jstex.newEnvironment("verse",function(tokens,target){return jstex.expand(tokens,target.createChild("div",{"title":"verse","style":{"margin-top":"10px","margin-bottom":"10px","margin-left":"30px"}}))});
+//jstex.newEnvironment("itemize",function(tokens,target){
+//    jstex.newCommand("item",   function(tkns,tgt){return jstex.expand    (tkns,tgt.createChild("li"))});
+//    return jstex.expand(tokens,target.createChild("ul"));
+//});
 
 jstex.newEnvironment("$",function(tokens,target){
     if(MathJax){
