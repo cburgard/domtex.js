@@ -1,4 +1,14 @@
 var jstex = {
+    packages: {},
+    /////////////////////////////////////////////////////////////
+    // The following states form return values
+    Status : {
+	READING: true,
+	ENDGROUP: false,
+	ENDSTREAM: -1,
+	ERROR: -2
+    },
+    ////////////////////////////////////////////////////////////
     /////////////////////////////////////////////////////////////
     // The Command class holds a single TeX primitive or command
     ////////////////////////////////////////////////////////////
@@ -17,7 +27,7 @@ var jstex = {
 		return cmd;
 	    }
 	} else {
-	    console.log("creating command '"+name+"' in scope "+jstex.scopes.length);
+//	    console.log("creating command '"+name+"' in scope "+jstex.scopes.length);
 	    cmd = new Object();
 	    cmd.name = name;
 	    if(expand){
@@ -122,11 +132,11 @@ var jstex = {
 	    aliases : curscope.aliases
 	}
 	jstex.scopes.unshift(scope);
-	console.log("entering scope "+jstex.scopes.length);
+//	console.log("entering scope "+jstex.scopes.length);
     },
     leaveScope:function(){
 	if(jstex.scopes.length > 0){
-	    console.log("leaving scope "+jstex.scopes.length);
+//	    console.log("leaving scope "+jstex.scopes.length);
 	    jstex.scopes.shift()
 	} else {
 	    console.log("ERROR in leaveScope: stack is empty!")
@@ -149,7 +159,7 @@ var jstex = {
 	return jstex.scopes[0].aliases[code];
     },
 //    unknownCSalias : "&#65533;",
-    unknownCSalias : "<svg color-rendering='auto' color-interpolation='auto' text-rendering='auto' stroke-miterlimit='10' shape-rendering='auto' image-rendering='auto' version='1.1' width='1.5em' height='1.5em' preserveAspectRatio='xMinYMin meet' viewBox='0 0 240 240' style='font-size:12px;font-style:normal;font-weight:normal;fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:1;stroke-linecap:square;stroke-linejoin:miter;stroke-miterlimit:10;stroke-opacity:1;stroke-dasharray:none;stroke-dashoffset:0;font-family:Dialog'> <defs id='genericDefs' /> <g id='g5' transform='translate(-24.4688,-152.7188)'> <g id='g7'> <path  d='M 263.5312,272.25 144,391.7812 24.4688,272.25 144,152.7188 263.5312,272.25 z m -76.9218,-30.2344 q 0,-16.1718 -11.9532,-26.9297 -11.9531,-10.7578 -29.1093,-10.7578 -20.6719,0 -36,6.3281 l -2.5313,25.1719 q 11.6719,-7.4531 25.7344,-7.4531 10.5469,0 17.4375,5.7656 6.8906,5.7656 6.8906,15.1875 0,10.2657 -11.8828,25.9453 -11.8828,15.6797 -11.8828,31.9922 l 21.375,0 q 0,-7.5937 8.2969,-17.8594 14.0625,-17.4374 15.3281,-19.5468 8.2969,-13.2188 8.2969,-27.8438 z m -26.2969,110.1094 0,-29.5312 -32.625,0 0,29.5312 32.625,0 z'  style='stroke:none' /> </g> </g> </svg>",
+    unknownCSalias : "<svg width='1.5em' height='1.5em' preserveAspectRatio='xMinYMin meet' viewBox='0 0 240 240' style='font-size:12px;font-style:normal;font-weight:normal;fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:1;stroke-linecap:square;stroke-linejoin:miter;stroke-miterlimit:10;stroke-opacity:1;stroke-dasharray:none;stroke-dashoffset:0;font-family:Dialog'> <g id='g5' transform='translate(-24.4688,-152.7188)'> <path  d='M 263.5312,272.25 144,391.7812 24.4688,272.25 144,152.7188 263.5312,272.25 z m -76.9218,-30.2344 q 0,-16.1718 -11.9532,-26.9297 -11.9531,-10.7578 -29.1093,-10.7578 -20.6719,0 -36,6.3281 l -2.5313,25.1719 q 11.6719,-7.4531 25.7344,-7.4531 10.5469,0 17.4375,5.7656 6.8906,5.7656 6.8906,15.1875 0,10.2657 -11.8828,25.9453 -11.8828,15.6797 -11.8828,31.9922 l 21.375,0 q 0,-7.5937 8.2969,-17.8594 14.0625,-17.4374 15.3281,-19.5468 8.2969,-13.2188 8.2969,-27.8438 z m -26.2969,110.1094 0,-29.5312 -32.625,0 0,29.5312 32.625,0 z'  style='stroke:none' /> </g> </svg>",
     isArray : function(a) {
 	return (!!a) && (a.constructor === Array);
     },
@@ -450,55 +460,98 @@ var jstex = {
 	console.log("ERROR: missing \\"+end);
 	return buffer.innerHTML;
     },
+    readUntilSymbol:function(tokens,end){
+	var buffer = document.createElement("div");
+	jstex.extendDOM(buffer);
+	while(tokens.length > 0){
+	    if(tokens[0] !== end){
+		jstex.expandNext(tokens,buffer);
+		continue;
+	    }
+	    jstex.expandNext(tokens,buffer);
+	    return buffer.innerHTML;
+	}
+//	console.log("ERROR: no '"+end+"' found!");
+	return buffer.innerHTML;
+    },
     createDummy:function(title){
 	var dummy = document.createElement("span");
 	dummy.title=title;
 	dummy.innerHTML = jstex.unknownCSalias;
-	return dummy;
+	return dummy;b
     },
     expandNext:function(tokens,target){
 	if(!target || !target.createChild){
 	    console.log("expandNext called with invalid target:",target);
-	    return false;
+	    return jstex.Status.ERROR;
 	} 
 	if(jstex.isArray(tokens)){
-	    if(tokens.length < 1) return false;
+	    if(tokens.length < 1) return jstex.Status.ENDSTREAM;
 	    var token = tokens.shift();
 	}  else {
 	    var token = tokens;
 	}
 	if(token === undefined || token === null || token === false){
 	    target.appendChild(jstex.createDummy(token));
-	    console.log("sorry, encountered invalid token");
-	    return undefined;
+	    return jstex.Status.ERROR;
 	} else if(jstex.isArray(token)){
-	    return jstex.expand(token,target);
+	    jstex.expand(token,target);
+	    return jstex.Status.READING;
 	} else if(jstex.isString(token)){
 	    target.appendText(token);
-	    return true;
+	    return jstex.Status.READING;
 	} else if(token.isUndefined){
 	    console.log("undefined control sequence: " +token.name);
 	    target.appendChild(jstex.createDummy(token.name));
-	    return true;
+	    return jstex.Status.READING;
 	} else if(token.expand !== undefined){
+//	    console.log("expanding '"+token.name+"'");
 	    var retval = token.expand(tokens,target);
-	    if(retval == undefined){
+	    if(retval == jstex.Status.ERROR){
 		console.log("the command '"+token.name+"' reported an error during expansion!")
-		return true;
 	    }
 	    return retval;
 	} else {
 	    console.log("ERROR: cannot process token of type '"+typeof token+"':",token);
-	    return undefined;
+	    return jstex.Status.ERROR;
 	}
     },
     expand:function(token,target){
 	if(jstex.isArray(token)){
 	    var cnt = 0;
-	    while(jstex.expandNext(token,target)){
+	    while(true){
+		var retval = jstex.expandNext(token,target);
 		cnt++;
+		if(retval == jstex.Status.ENDSTREAM){
+		    return jstex.Status.ENDSTREAM;
+		}
+		if(retval == jstex.Status.ENDGROUP){
+		    return jstex.Status.ENDGROUP;
+		}
+		if(retval == jstex.Status.ERROR){
+		    return jstex.Status.ERROR;
+		}
 	    }
-	    return true;
+	}
+	return jstex.expandNext(token,target);
+    },
+    expandUntil:function(token,target,cmdname){
+	if(jstex.isArray(token)){
+	    var cnt = 0;
+	    while(true){
+		if(token[0].name == cmdname) return jstex.Status.READING;
+		var retval = jstex.expandNext(token,target);
+		cnt++;
+		if(retval == jstex.Status.ENDSTREAM){
+		    return jstex.Status.ENDSTREAM;
+		}
+		if(retval == jstex.Status.ENDGROUP){
+		    return jstex.Status.ENDGROUP;
+		}
+		if(retval == jstex.Status.ERROR){
+		    return jstex.Status.ERROR;
+		}
+	    }
 	}
 	return jstex.expandNext(token,target);
     },
@@ -570,12 +623,12 @@ jstex.newCommand("linebreak",function(tokens,parent){ parent.appendChild(documen
 jstex.newCommand("hline"    ,function(tokens,parent){ parent.appendChild(document.createElement("hr")); return true; });
 
 //// extra symbols
-jstex.newCommand("glqq",     function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&bdquo;" ));return true});
-jstex.newCommand("grqq",     function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&ldquo;" ));return true});
-jstex.newCommand("euro",     function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&euro;"  ));return true});
-jstex.newCommand("textndash",function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&ndash;" ));return true});
-jstex.newCommand("textmdash",function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&mdash;" ));return true});
-jstex.newCommand("texttimes",function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&times;" ));return true});
+jstex.newCommand("glqq",     function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&bdquo;" )); return true});
+jstex.newCommand("grqq",     function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&ldquo;" )); return true});
+jstex.newCommand("euro",     function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&euro;"  )); return true});
+jstex.newCommand("textndash",function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&ndash;" )); return true});
+jstex.newCommand("textmdash",function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&mdash;" )); return true});
+jstex.newCommand("texttimes",function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&times;" )); return true});
 jstex.newCommand("dots",     function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&#8230;" )); return true});
 jstex.newCommand("&",        function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&amp;"   )); return true});
 
@@ -587,6 +640,7 @@ jstex.ignoreCommand("tableofcontents");
 jstex.ignoreCommand("newlength");
 jstex.ignoreCommand("newcounter");
 jstex.ignoreCommand("geometry",1);
+jstex.ignoreCommand("appendix");
 		 
 //// some tricky things
 jstex.newCommand("url",function(tokens,parent){ 
@@ -596,7 +650,8 @@ jstex.newCommand("url",function(tokens,parent){
 });
 jstex.newCommand("author",function(tokens,parent){ 
     var cmd = jstex.newCommand("theauthor",function(toks,p){
-	return jstex.expand(this.content,p);
+	jstex.expand(this.content,p);
+	return true;
     });
     cmd.content=tokens.shift();
     return true;
@@ -604,7 +659,8 @@ jstex.newCommand("author",function(tokens,parent){
 
 jstex.newCommand("title",function(tokens,parent){ 
     var cmd = jstex.newCommand("thetitle",function(toks,p){
-	return jstex.expand(this.content,p);
+	jstex.expand(this.content,p);
+	return true;
     });
     cmd.content=tokens.shift();
     return true;
@@ -615,6 +671,60 @@ jstex.newCommand("maketitle",function(tokens,parent){
     return true;
 });
 
+jstex.provide_package=function(name,path){
+    var script= document.createElement('script');
+    script.type= 'text/javascript';
+    script.async=false;
+    script.src=path;
+    document.head.appendChild(script);
+    console.log("providing package '"+name+"' from path '"+path+"'");
+    return true;
+}
+
+jstex.ignore_package=function(name){
+    jstex.packages[name] = { load:function(args){ return true; } };
+    return true;
+}
+
+jstex.parseKeyValArg=function(tokens){
+    var tok = tokens.shift();
+    var x = true;
+    var obj = {};
+    while(x){
+	x = jstex.readUntilSymbol(tok,",").replace(/,+$/, "");
+	var sep = x.indexOf("=");
+	var key = x.substr(0,sep).trim();
+	var val = x.substr(sep+1).trim();
+	if(key){
+	    obj[key]=val;
+	}
+    }
+//    var buffer = document.createElement("div");
+//    jstex.extendDOM(buffer);
+//    buffer.innerHTML="";
+//    jstex.expandNext(tokens,buffer);
+//    console.log(buffer.innerHTML);
+    return obj;
+}
+
+jstex.newCommand("usepackage",function(tokens,parent){
+    jstex.buffer.innerHTML="";
+    var optArg = "";
+    if(tokens[0].optArg){
+	jstex.expandNext(tokens,jstex.buffer);
+	optArg = jstex.buffer.innerText;
+    }
+    jstex.buffer.innerHTML="";
+    jstex.expandNext(tokens,jstex.buffer);
+    var pkgname = jstex.buffer.innerText;
+    if(jstex.packages[pkgname]){
+	console.log("including package '"+pkgname+"' with options '"+optArg+"'");
+	return jstex.packages[pkgname].load(optArg);
+    } else {
+	throw "Error: cannot load package '"+pkgname+"' - if this is an external package not provided by tex.js, you need to call 'jstex.provide_package(name,path)' to pre-load it!";
+    }
+});
+
 //// sectioning
 var sections = ["section","subsection","subsubsection"];
 for(var i=0; i<sections.length; i++){
@@ -623,14 +733,15 @@ for(var i=0; i<sections.length; i++){
 	return jstex.expandNext(tokens,parent.createChild(tag));
     });
 };
+jstex.newCommand("paragraph",    function(tokens,target){return jstex.expandNext(tokens,target.createChild("span",{"style":{"font-weight":"bold"}}))});
 
 //// font choices
 jstex.newCommand("textit",    function(tokens,target){return jstex.expandNext(tokens,target.createChild("span",{"style":{"font-style":"italic"}}))});
 jstex.newCommand("textbf",    function(tokens,target){return jstex.expandNext(tokens,target.createChild("span",{"style":{"font-weight":"bold"}}))});
 jstex.newCommand("textsc",    function(tokens,target){return jstex.expandNext(tokens,target.createChild("span",{"style":{"font-variant":"small-caps"}}))});
-jstex.newCommand("itshape",   function(tokens,target){return jstex.expand    (tokens,target.createChild("span",{"style":{"font-style":"italic"}}))});
-jstex.newCommand("twistshape",function(tokens,target){return jstex.expand    (tokens,target.createChild("span",{"style":{"font-style":"italic"}}))});
-jstex.newCommand("bfseries",  function(tokens,target){return jstex.expand    (tokens,target.createChild("span",{"style":{"font-weight":"bold"}}))});
+jstex.newCommand("itshape",   function(tokens,target){return jstex.expand    (tokens,target.createChild("span",{"style":{"font-style":"italic"      }}))});
+jstex.newCommand("twistshape",function(tokens,target){return jstex.expand    (tokens,target.createChild("span",{"style":{"font-style":"italic"      }}))});
+jstex.newCommand("bfseries",  function(tokens,target){return jstex.expand    (tokens,target.createChild("span",{"style":{"font-weight":"bold"       }}))});
 jstex.newCommand("sqrcfamily",function(tokens,target){return jstex.expand    (tokens,target.createChild("span",{"style":{"font-variant":"small-caps"}}))});
 
 jstex.setLength("tiny","6pt");
@@ -672,9 +783,14 @@ jstex.newCommand("begin",function(tokens,target){
     var envname = jstex.buffer.innerHTML;
     var env = jstex.getEnvironment(envname);
     jstex.enterScope();
+    // it is important that the return-value is not forwarded
+    // otherwise, the expander would return the ENDSTREAM/ENDGROUP
+    // message all the way up to the body
     if(!env){
 	console.log("warning: encountered unknown begin-environment '"+envname+"'");
-	return jstex.expand(tokens,target.createChild("span",{"title":envname}));
+	jstex.expand(tokens,target.createChild("span",{"title":envname}));
+	return jstex.Status.READING;
+
     }
     if(env.beginTokens){
 	var beginToks = jstex.cloneArray(env.beginTokens);
@@ -684,7 +800,8 @@ jstex.newCommand("begin",function(tokens,target){
 	}
     }
     console.log("entering environment '"+envname+"'");
-    return env.expand(tokens,target);
+    env.expand(tokens,target);
+    return jstex.Status.READING;
 });
 
 jstex.newCommand("end",function(tokens,target){
@@ -704,7 +821,7 @@ jstex.newCommand("end",function(tokens,target){
 	}
     }
     jstex.leaveScope();
-    return false;
+    return jstex.Status.ENDGROUP;
 });
 
 jstex.newCommand("csname",function(tokens,parent){
@@ -747,11 +864,12 @@ jstex.newCommand("newenvironment",function(tokens,parent){
 //// environments
 
 jstex.newEnvironment("center",function(tokens,target){return jstex.expand(tokens,target.createChild("div",{"style":{"text-align":"center"}}))});
-jstex.newEnvironment("verse",function(tokens,target){return jstex.expand(tokens,target.createChild("div",{"title":"verse","style":{"margin-top":"10px","margin-bottom":"10px","margin-left":"30px"}}))});
-//jstex.newEnvironment("itemize",function(tokens,target){
-//    jstex.newCommand("item",   function(tkns,tgt){return jstex.expand    (tkns,tgt.createChild("li"))});
-//    return jstex.expand(tokens,target.createChild("ul"));
-//});
+jstex.newEnvironment("multicols",function(tokens,target){jstex.expandNext(tokens,jstex.buffer); return jstex.expand(tokens,target.createChild("div"))});
+
+jstex.newEnvironment("itemize",function(tokens,target){
+    jstex.newCommand("item",  function(tokens,target){return jstex.expandUntil    (tokens,target.createChild("li",{}),"item")});
+    return jstex.expand(tokens,target.createChild("ul"));
+});
 
 jstex.newEnvironment("$",function(tokens,target){
     if(MathJax){
@@ -766,3 +884,19 @@ jstex.newEnvironment("$",function(tokens,target){
     }
 });
 
+/// package emulation
+
+jstex.packages.verse = { load:function(args){
+    jstex.newEnvironment("verse",function(tokens,target){return jstex.expand(tokens,target.createChild("div",{"title":"verse","style":{"margin-top":"10px","margin-bottom":"10px","margin-left":"30px"}}))});
+    return true;
+}};
+
+jstex.ignore_package("babel");
+jstex.ignore_package("inputenc");
+jstex.ignore_package("fontenc");
+jstex.ignore_package("verse")
+jstex.ignore_package("geometry");
+jstex.ignore_package("hyperref");
+jstex.ignore_package("vicent");
+jstex.ignore_package("sqrcaps");
+jstex.ignore_package("multicol");
