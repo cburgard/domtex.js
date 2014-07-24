@@ -60,6 +60,10 @@ jstex.packages.midgard = {
 	    var opt = jstex.parseKeyValArg(tokens);
 	    var title = parent.createChild("h3",{"width":"50%","style":{"margin-bottom":"0px"}});
 	    title.innerHTML=opt.name;
+	    var spelltype = parent.createChild("div");
+	    spelltype.appendText(opt.art);
+	    if(parseInt(opt.stufe)) spelltype.appendText(" der Stufe "+opt.stufe);
+	    else spelltype.appendText(" der Großen Magie");
 	    if(opt.material){
 		var material = parent.createChild("span",{"style":{"font-style":"italic"}});
 		material.innerHTML=opt.material;
@@ -73,22 +77,89 @@ jstex.packages.midgard = {
 		}
 		parent.createChild("br");
 	    }
-	    parent.appendText(opt.prozess + " ");
-	    jstex.getCommand("imgModus").expand(0,parent);
-	    parent.appendText(" " + opt.agens + " ");
-	    jstex.getCommand("imgObjectum").expand(0,parent);
-	    parent.appendText(" "+opt.reagens);
-	    parent.createChild("br");
-	    var table = document.createElement("table");
-	    parent.appendChild(table);
+	    var formula = parent.createChild("div");
+	    formula.appendText(opt.prozess + " ");
+	    jstex.getCommand("imgModus").expand(0,formula);
+	    formula.appendText(" " + opt.agens + " ");
+	    jstex.getCommand("imgObjectum").expand(0,formula);
+	    formula.appendText(" "+opt.reagens);
+	    var table = parent.createChild("table");
+	    jstex.packages.midgard.createSpellTabRow(table,"AP-Verbrauch:",opt.AP);
+	    jstex.packages.midgard.createSpellTabRow(table,"Reichweite:",opt.Rw);
+	    jstex.packages.midgard.createSpellTabRow(table,"Wirkungsziel:",opt.Wz);
+	    jstex.packages.midgard.createSpellTabRow(table,"Wirkungsbereich:",opt.Wb);
+	    jstex.packages.midgard.createSpellTabRow(table,"Wirkungsdauer:",opt.Wd);
+	    jstex.packages.midgard.createSpellTabRow(table,"Ursprung:",opt.Ur);
+	    var FP = opt.FP;
+	    var learning = parent.createChild("div");
+	    learning.createChild("span",{"className":"midgard_lernkosten"}).innerHTML=parseInt(FP)/2+":";
+	    learning.appendText(" ");
+	    learning.createChild("span").innerHTML=opt.G;
+	    learning.appendText(" "+jstex.getHTMLAlias("&ndash;" )+" ");
+	    learning.createChild("span",{"className":"midgard_lernkosten"}).innerHTML=parseInt(FP)+":";
+	    learning.appendText(" ");
+	    learning.createChild("span").innerHTML=opt.S;
+	    learning.appendText(" "+jstex.getHTMLAlias("&ndash;" )+" ");
+	    learning.createChild("span",{"className":"midgard_lernkosten"}).innerHTML=parseInt(FP)*5+":";
+	    learning.appendText(" ");
+	    learning.createChild("span").innerHTML=opt.A;
+	    return true;
+	});
+	jstex.newCommand("best",function(tokens,parent){
+	    var opt = jstex.parseKeyValArg(tokens);
+	    var block = parent.createChild("div");
+	    block.createChild("span",{"style":{"font-weight":"bold"}}).innerHTML=opt.name;
+	    block.appendText(" ");
+	    block.createChild("span").innerHTML="(Grad "+opt.grad+")";
+	    var block = parent.createChild("div");
+	    block.createChild("span").innerHTML=(opt.LP ? opt.LP : "❋") +" LP";
+	    block.appendText(", ");
+	    block.createChild("span").innerHTML=(opt.AP ? opt.AP : "❋") +" AP";
+	    block.appendText(" "+jstex.getHTMLAlias("&ndash;" )+" ");
+	    block.createChild("span").innerHTML=(opt.RK ? opt.RK : "❋R");
+	    block.appendText(" "+jstex.getHTMLAlias("&ndash;" )+" ");
+	    block.createChild("span").innerHTML="St "+(opt.St ? opt.St : "❋");
+	    block.appendText(", ");
+	    block.createChild("span").innerHTML="Gw "+(opt.Gw ? opt.Gw : "❋");
+	    block.appendText(", ");
+	    block.createChild("span").innerHTML="B "+(opt.B ? opt.B : "❋");
+	    var block = parent.createChild("div");
+	    block.createChild("span",{"style":{"font-weight":"bold"}}).innerHTML="Angriff:";
+	    block.appendText(" ");
+	    block.createChild("span").innerHTML=opt.angriff;
+	    block.appendText(" "+jstex.getHTMLAlias("&ndash;" )+" ");
+	    block.createChild("span",{"style":{"font-variant":"small-caps"}}).innerHTML="Abwehr+"+opt.abwehr;
+	    block.appendText(" "+jstex.getHTMLAlias("&ndash;" )+" ");
+	    block.createChild("span",{"style":{"font-variant":"small-caps"}}).innerHTML="Resistenz+"+opt.resistenz;
+	    if(opt.bes){
+		var block = parent.createChild("div");
+		block.createChild("span",{"style":{"font-weight":"bold"}}).innerHTML="Bes.:";
+		block.appendText(" ");
+		block.createChild("span").innerHTML=opt.bes;
+	    }
 	    return true;
 	});
 	jstex.newCommand("zaubervariante",function(tokens,target){return jstex.expandNext(tokens,target.createChild("span",{"style":{"font-weight":"bold"}}))});
 	jstex.newEnvironment("rundbox",function(tokens,target){return jstex.expand(tokens,target.createChild("div",{"style":{"border":"2px sollid", "border-radius":"1em"}}))});
 	jstex.newEnvironment("beispiel",function(tokens,target){return jstex.expand(tokens,target.createChild("div",{"style":{"border":"2px sollid", "border-radius":"1em","background-color":"lightgrey", "box-shadow": "10px 10px 5px #888888","padding":".5em"}}))});
+
+	// add some custom classes
+	var style = document.createElement('style');
+	style.type = 'text/css';
+	style.innerHTML+= '.midgard_zauberTabTitle { font-weight:bold; width:10em; }';
+	style.innerHTML+= '.midgard_zauberTabValue { font-weight:normal; }';
+	style.innerHTML+= '.midgard_lernkosten { font-weight:bold; }';
+	document.getElementsByTagName('head')[0].appendChild(style);
+
 	return true;
+    },
+    createSpellTabRow:function(table,title,value){
+	var row = table.createChild("tr")
+	row.createChild("td",{"className":"midgard_zauberTabTitle"}).innerText = title;
+	row.createChild("td",{"className":"midgard_zauberTabValue"}).innerHTML = value;
     }
 }
+
 
 
 

@@ -182,6 +182,13 @@ var jstex = {
 	    return str;
 	return "http://"+str;
     },
+    makeid : function(){
+	var text = "";
+	var possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+	for( var i=0; i < 5; i++ )
+            text += possible.charAt(Math.floor(Math.random() * possible.length));
+	return text;
+    },
     findParenthesisMatch : function(input, openpar, closepar, idx){
 	var parstack = 0;
 	while(idx < input.length){
@@ -326,7 +333,7 @@ var jstex = {
 		    respectnewlines=0;
 		    continue;
 		}
-		var endidx  = jstex.findNextOf(input,"\\{[-\t \n\r%",idx+1);
+		var endidx  = jstex.findNextOf(input,"\\{[-\t \n\r%1234567890.,",idx+2);
 		if(endidx < 0) endidx = input.length;
 		var cmdname = input.substr(idx+1,endidx-idx-1);
 		var cmd     = jstex.getCommand(cmdname);
@@ -532,13 +539,14 @@ var jstex = {
 		    return jstex.Status.ERROR;
 		}
 	    }
+	    return jstex.Status.ENDSTREAM;
 	}
 	return jstex.expandNext(token,target);
     },
     expandUntil:function(token,target,cmdname){
 	if(jstex.isArray(token)){
 	    var cnt = 0;
-	    while(true){
+	    while(token.length>0){
 		if(token[0].name == cmdname) return jstex.Status.READING;
 		var retval = jstex.expandNext(token,target);
 		cnt++;
@@ -552,6 +560,7 @@ var jstex = {
 		    return jstex.Status.ERROR;
 		}
 	    }
+	    return jstex.Status.ENDSTREAM;
 	}
 	return jstex.expandNext(token,target);
     },
@@ -604,10 +613,15 @@ var jstex = {
 	var cmd = jstex.newCommand(name,expand);
 	cmd.argc = argc;
     },
-
-
-
+    resources: {}
 }
+
+// general setup for TOC, LOF, LOT, etc...
+jstex.resources.tableofcontents=document.createElement("div");
+jstex.extendDOM(jstex.resources.tableofcontents);
+jstex.resources.tableofcontents_title = jstex.resources.tableofcontents.createChild("div",{"id":"jstex_toctitle","className":"jstex_toctitle"})
+jstex.resources.tableofcontents_title.innerHTML="Table of Contents";
+
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
@@ -617,10 +631,11 @@ var jstex = {
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 //// basic symbols
-jstex.newCommand("par",      function(tokens,parent){ parent.appendChild(document.createElement("br")); return true; });
-jstex.newCommand("newline",  function(tokens,parent){ parent.appendChild(document.createElement("br")); return true; });
-jstex.newCommand("linebreak",function(tokens,parent){ parent.appendChild(document.createElement("br")); return true; });
-jstex.newCommand("hline"    ,function(tokens,parent){ parent.appendChild(document.createElement("hr")); return true; });
+//jstex.newCommand("par",      function(tokens,parent){ parent.appendChild(document.createElement("br")); return true; });
+jstex.newCommand("par",      function(tokens,parent){ return jstex.expandUntil(tokens,parent.createChild("p"),"par"); });
+jstex.newCommand("newline",  function(tokens,parent){ parent.createChild("br"); return true; });
+jstex.newCommand("linebreak",function(tokens,parent){ parent.createChild("br"); return true; });
+jstex.newCommand("hline"    ,function(tokens,parent){ parent.createChild("hr"); return true; });
 
 //// extra symbols
 jstex.newCommand("glqq",     function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&bdquo;" )); return true});
@@ -631,12 +646,12 @@ jstex.newCommand("textmdash",function(tokens,parent){parent.appendText(jstex.get
 jstex.newCommand("texttimes",function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&times;" )); return true});
 jstex.newCommand("dots",     function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&#8230;" )); return true});
 jstex.newCommand("&",        function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&amp;"   )); return true});
+jstex.newCommand("%",        function(tokens,parent){parent.appendText(jstex.getHTMLAlias("%"   )); return true});
 
 jstex.ignoreCommand("sloppy");
 jstex.ignoreCommand("twocolumn");
 jstex.ignoreCommand("onecolumn");
 jstex.ignoreCommand("noindent");
-jstex.ignoreCommand("tableofcontents");
 jstex.ignoreCommand("newlength");
 jstex.ignoreCommand("newcounter");
 jstex.ignoreCommand("geometry",1);
@@ -671,6 +686,10 @@ jstex.newCommand("maketitle",function(tokens,parent){
     return true;
 });
 
+jstex.newCommand("tableofcontents",function(tokens,parent){
+    parent.appendChild(jstex.resources.tableofcontents);
+});
+
 jstex.provide_package=function(name,path){
     var script= document.createElement('script');
     script.type= 'text/javascript';
@@ -699,11 +718,6 @@ jstex.parseKeyValArg=function(tokens){
 	    obj[key]=val;
 	}
     }
-//    var buffer = document.createElement("div");
-//    jstex.extendDOM(buffer);
-//    buffer.innerHTML="";
-//    jstex.expandNext(tokens,buffer);
-//    console.log(buffer.innerHTML);
     return obj;
 }
 
@@ -730,7 +744,12 @@ var sections = ["section","subsection","subsubsection"];
 for(var i=0; i<sections.length; i++){
     var tag = jstex.scopes[0].tags[sections[i]];
     jstex.newCommand(sections[i],function(tokens,parent){
-	return jstex.expandNext(tokens,parent.createChild(tag));
+	var id = jstex.makeid();
+	var header = parent.createChild(tag,{"id":id});
+	var retval = jstex.expandNext(tokens,header);
+	var tocentry = jstex.resources.tableofcontents.createChild("a",{"className":"jstex_tocstyle_"+this.name,"href":"#"+id});
+	tocentry.innerHTML=header.innerHTML;
+	return retval;
     });
 };
 jstex.newCommand("paragraph",    function(tokens,target){return jstex.expandNext(tokens,target.createChild("span",{"style":{"font-weight":"bold"}}))});
@@ -799,7 +818,7 @@ jstex.newCommand("begin",function(tokens,target){
 	    beginToks.pop();
 	}
     }
-    console.log("entering environment '"+envname+"'");
+//    console.log("entering environment '"+envname+"'");
     env.expand(tokens,target);
     return jstex.Status.READING;
 });
@@ -810,7 +829,7 @@ jstex.newCommand("end",function(tokens,target){
     if(!env){
 	console.log("warning: encountered unknown end-environment '"+envname+"'");
     } else {
-	console.log("leaving environment '"+envname+"'");
+//	console.log("leaving environment '"+envname+"'");
 	if(env.endTokens){
 	    var endtokens = jstex.cloneArray(env.endTokens);
 	    while(endtokens.length > 0){
@@ -891,7 +910,15 @@ jstex.packages.verse = { load:function(args){
     return true;
 }};
 
-jstex.ignore_package("babel");
+jstex.packages.babel = { load:function(args){
+    var toctitle = jstex.resources.tableofcontents_title;
+    if(args.indexOf("ngerman") != -1) toctitle.innerHTML="Inhaltsverzeichnis";
+    return true;
+}};
+
+jstex.ignore_package("graphicx");
+jstex.ignore_package("trajan");
+jstex.ignore_package("microtype");
 jstex.ignore_package("inputenc");
 jstex.ignore_package("fontenc");
 jstex.ignore_package("verse")
@@ -900,3 +927,12 @@ jstex.ignore_package("hyperref");
 jstex.ignore_package("vicent");
 jstex.ignore_package("sqrcaps");
 jstex.ignore_package("multicol");
+
+
+var style = document.createElement('style');
+style.type = 'text/css';
+style.innerHTML+= '.jstex_toctitle { font-weight:bold; font-size:1.17em; margin-bottom:1em; }';
+style.innerHTML+= '.jstex_tocstyle_section       { display:block; text-decoration:none; color: black; font-weight:bold; }';
+style.innerHTML+= '.jstex_tocstyle_subsection    { display:block; text-decoration:none; color: black; margin-left:1em;}';
+style.innerHTML+= '.jstex_tocstyle_subsubsection { display:block; text-decoration:none; color: black; font-style:italic; margin-left:2em;}';
+document.getElementsByTagName('head')[0].appendChild(style);
