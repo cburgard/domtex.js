@@ -8,7 +8,6 @@ var jstex = {
 	ENDSTREAM: -1,
 	ERROR: -2
     },
-    ////////////////////////////////////////////////////////////
     /////////////////////////////////////////////////////////////
     // The Command class holds a single TeX primitive or command
     ////////////////////////////////////////////////////////////
@@ -41,10 +40,47 @@ var jstex = {
 	    return cmd;
 	}
     },
+    newInclude : function(name,resolve){
+	var cmd = jstex.getCommand(name);
+	if(cmd){
+	    console.log("command '"+name+"' is already defined!");
+	} else {
+	    console.log("creating include command '"+name+"' in scope "+jstex.scopes.length);
+	    cmd = new Object();
+	    cmd.name = name;
+	    if(resolve){
+		cmd.resolve = resolve;
+		cmd.isUnresolved = true;
+		cmd.isUndefined = false;
+	    } else {
+		cmd.isUnresolved = false;
+		cmd.isUndefined = true;
+	    }
+	    cmd.toString = function(){return this.name};
+	    jstex.addCommand(cmd);
+	    return cmd;
+	}
+    },
     getCommand:function(name){
 	return jstex.scopes[0].commands[name];
     },
-
+    getCounter:function(name){
+	return jstex.scopes[0].counters[name];
+    },
+    newCounter:function(name){
+	jstex.scopes[0].counters[name] = 0;
+    },
+    stepCounter:function(name){
+	jstex.scopes[0].counters[name] = jstex.scopes[0].counters[name] + 1;
+    },
+    setLastRef:function(elem,info){
+	jstex.scopes[0].lastRef = elem;
+	elem.info = info;
+    },
+    getLastRef:function(elem){
+	if(jstex.scopes[0].lastRef) return jstex.scopes[0].lastRef;
+	else return jstex.container;
+    },
     /////////////////////////////////////////////////////////////
     // The Element class converts meta-information to an actual DOM
     // element
@@ -103,13 +139,11 @@ var jstex = {
     scopes : [ {
 	commands : {},
 	environments : {},
-	counters : {
-	},
+	counters : {},
 	lengths : {
 	    frameborder : "1px"
 	},
-	isParagraphOpen : false,
-	inMathMode : false,
+	lastRef : undefined,
 	tags : {
 	    section : "h1",
 	    subsection : "h2",
@@ -126,8 +160,7 @@ var jstex = {
 	    environments : jstex.copyObject(curscope.environments),
 	    counters :     jstex.copyObject(curscope.counters),
 	    lengths :      jstex.copyObject(curscope.lengths),
-	    isParagraphOpen : false,
-	    inMathMode : false,
+	    lastRef:       curscope.lastRef,
 	    tags : curscope.tags,
 	    aliases : curscope.aliases
 	}
@@ -333,7 +366,7 @@ var jstex = {
 		    respectnewlines=0;
 		    continue;
 		}
-		var endidx  = jstex.findNextOf(input,"\\{[-\t \n\r%1234567890.,",idx+2);
+		var endidx  = jstex.findNextOf(input,"\\{}[]()-\t \n\r%1234567890.,#/",idx+2);
 		if(endidx < 0) endidx = input.length;
 		var cmdname = input.substr(idx+1,endidx-idx-1);
 		var cmd     = jstex.getCommand(cmdname);
@@ -375,6 +408,29 @@ var jstex = {
 	    respectnewlines=0;
 	}
 	return tokens;
+    },
+    resolve : function(tokenstream){
+	while(jstex.resolveNext(tokenstream)){
+	    // do nothing
+	}
+	return true;
+    },
+    resolveNext : function(tokenstream){
+	for(var i=0; i<tokenstream.length; i++){
+	    if(jstex.isString(tokenstream[i])) 
+		continue;
+	    if(jstex.isArray(tokenstream[i])){
+		if(jstex.resolveNext(tokenstream[i]))
+		    return true;
+		continue;
+	    }
+	    if(tokenstream[i].isUnresolved){
+		var tkn = tokenstream[i];
+		tokenstream[i] = tkn.resolve();
+		return true;
+	    }
+	}
+	return false;
     },
     findenvbegin : function(source,envname){
 	var s = "\\begin{"+envname+"}";
@@ -518,6 +574,9 @@ var jstex = {
 		console.log("the command '"+token.name+"' reported an error during expansion!")
 	    }
 	    return retval;
+	} else if(token.name == "#localVariable"){
+	    // todo: implement this
+	    return jstex.Status.READING;
 	} else {
 	    console.log("ERROR: cannot process token of type '"+typeof token+"':",token);
 	    return jstex.Status.ERROR;
@@ -564,6 +623,30 @@ var jstex = {
 	}
 	return jstex.expandNext(token,target);
     },
+    finalize:function(){
+	// fill the contents of references
+	var links = document.getElementsByClassName("jstex_refstyle");
+	console.log("filling references for "+links.length+" items!");
+	for(var i=0; i<links.length; i++){
+	    var obj = links[i];
+	    var id = obj.refid;
+	    console.log(obj,id);
+	    var refObj = document.getElementById(id);
+	    if(refObj){
+		obj.innerText=refObj.info;
+	    } else {
+		obj.innerText=jstex.unknownCSalias;
+	    }
+	}
+	// execute math rendering
+	if(MathJax){
+	    var mathdivs = document.getElementsByClassName("MathJax");
+	    console.log("MathJax found - executing on "+mathdivs.length+" items!");
+	    for(var i=0; i<mathdivs.length; i++){
+		MathJax.Hub.Queue(["Typeset",MathJax.Hub,mathdivs[i].id]);
+	    }
+	}	
+    },
     /////////////////////////////////////////////////////////////
     // plugging it all together
     /////////////////////////////////////////////////////////////
@@ -577,22 +660,18 @@ var jstex = {
 	    jstex.extendDOM(preamble);
 	    jstex.tex(source.substr(0,begindocument-16),preamble);
 	    var container = document.createElement("div");
+	    jstex.container = container;
 	    jstex.extendDOM(container);
 	    jstex.tex(source.substr(begindocument,enddocument-begindocument),container);
 	    container.className="jsTeX";
-	    if(MathJax){
-		var mathdivs = document.getElementsByClassName("MathJax");
-		console.log("MathJax found - executing on "+mathdivs.length+" items!");
-		for(var i=0; i<mathdivs.length; i++){
-		    MathJax.Hub.Queue(["Typeset",MathJax.Hub,mathdivs[i].id]);
-		}
-	    }	
+	    setTimeout(function() { jstex.finalize(); }, 100);
 	    return container;
 	}
 	return "jsTeX error: missing begin/end document!"
     },
     tex:function(source,target){
 	var tokens = jstex.tokenize(source);
+	jstex.resolve(tokens,target);
 	jstex.expand(tokens,target);
     },
     // a couple of TeX primitives need to be hardcoded
@@ -649,6 +728,8 @@ jstex.newCommand("&",        function(tokens,parent){parent.appendText(jstex.get
 jstex.newCommand("%",        function(tokens,parent){parent.appendText(jstex.getHTMLAlias("%"   )); return true});
 
 jstex.ignoreCommand("sloppy");
+jstex.ignoreCommand("makeatletter");
+jstex.ignoreCommand("makeatother");
 jstex.ignoreCommand("twocolumn");
 jstex.ignoreCommand("onecolumn");
 jstex.ignoreCommand("noindent");
@@ -656,11 +737,14 @@ jstex.ignoreCommand("newlength");
 jstex.ignoreCommand("newcounter");
 jstex.ignoreCommand("geometry",1);
 jstex.ignoreCommand("appendix");
+jstex.ignoreCommand("clearpage");
+jstex.ignoreCommand("cleardoublepage");
+jstex.ignoreCommand("newpage");
 		 
 //// some tricky things
 jstex.newCommand("url",function(tokens,parent){ 
     var link = jstex.readNext(tokens);
-    parent.createChild("a",{"href":linkify(link)}).innerHTML=link;
+    parent.createChild("a",{"href":jstex.linkify(link)}).innerHTML=link;
     return true;
 });
 jstex.newCommand("author",function(tokens,parent){ 
@@ -688,6 +772,48 @@ jstex.newCommand("maketitle",function(tokens,parent){
 
 jstex.newCommand("tableofcontents",function(tokens,parent){
     parent.appendChild(jstex.resources.tableofcontents);
+});
+
+jstex.newCommand("@starttoc",function(tokens,parent){
+    var arg = jstex.readNext(tokens);
+    if(arg == "toc"){
+	parent.appendChild(jstex.resources.tableofcontents);
+	return true;
+    } else {
+	console.log("ERROR: cannot start toc of unknown type '"+arg+"'!");
+	return false;
+    }
+});
+
+
+jstex.newInclude("input",function(tokens,parent){
+    return "";
+});
+
+jstex.newCommand("caption",function(tokens,target){return jstex.expandNext(tokens,target.createChild("div",{"style":{"text-align":"center"}}))});
+
+jstex.newCommand("label",function(tokens,target){
+    jstex.buffer.innerHTML="";
+    var retval = jstex.expandNext(tokens,jstex.buffer);
+    var label = jstex.buffer.innerText;
+    var obj = jstex.getLastRef();
+    var hook = document.createElement("span");
+    hook.id=label,
+    hook.info = obj.info;
+    obj.insertBefore(hook,obj.firstChild);
+    return retval;
+});
+
+jstex.newCommand("ref",function(tokens,target){
+    jstex.buffer.innerHTML="";
+    var retval = jstex.expandNext(tokens,jstex.buffer);
+    var label = jstex.buffer.innerText;
+    target.createChild("a",{
+	"href":"#"+label,
+	"refid":label,
+	"className":"jstex_refstyle",
+    })
+    return retval;
 });
 
 jstex.provide_package=function(name,path){
@@ -743,12 +869,21 @@ jstex.newCommand("usepackage",function(tokens,parent){
 var sections = ["section","subsection","subsubsection"];
 for(var i=0; i<sections.length; i++){
     var tag = jstex.scopes[0].tags[sections[i]];
+    jstex.newCounter(sections[i]);
     jstex.newCommand(sections[i],function(tokens,parent){
 	var id = jstex.makeid();
 	var header = parent.createChild(tag,{"id":id});
+	jstex.stepCounter(this.name);
+	var thesec = jstex.getCounter(this.name);
+	jstex.setLastRef(header,thesec);
+	header.innerHTML=thesec + " ";
 	var retval = jstex.expandNext(tokens,header);
 	var tocentry = jstex.resources.tableofcontents.createChild("a",{"className":"jstex_tocstyle_"+this.name,"href":"#"+id});
 	tocentry.innerHTML=header.innerHTML;
+	return retval;
+    });
+    jstex.newCommand(sections[i]+"*",function(tokens,parent){
+	var retval = jstex.expandNext(tokens,parent.createChild(tag));
 	return retval;
     });
 };
@@ -883,6 +1018,26 @@ jstex.newCommand("newenvironment",function(tokens,parent){
 //// environments
 
 jstex.newEnvironment("center",function(tokens,target){return jstex.expand(tokens,target.createChild("div",{"style":{"text-align":"center"}}))});
+
+jstex.newEnvironment("small",function(tokens,target){return jstex.expand(tokens,target.createChild("div",{"style":{"font-size":"0.7em"}}))});
+
+jstex.newCounter("figure");
+jstex.newEnvironment("figure",function(tokens,target){
+    jstex.stepCounter("figure");
+    return jstex.expand(tokens,target.createChild("div",{"style":{"text-align":"center"}}))
+});
+
+jstex.newEnvironment("table",function(tokens,target){
+    jstex.stepCounter("table");
+    return jstex.expand(tokens,target.createChild("div",{"style":{"text-align":"center"}}))
+});
+
+
+jstex.newEnvironment("minipage",function(tokens,target){return jstex.expand(tokens,target.createChild("div"))});
+
+
+jstex.newEnvironment("quotation",function(tokens,target){return jstex.expand(tokens,target.createChild("div",{"style":{"margin-left":"1em"}}))});
+
 jstex.newEnvironment("multicols",function(tokens,target){jstex.expandNext(tokens,jstex.buffer); return jstex.expand(tokens,target.createChild("div"))});
 
 jstex.newEnvironment("itemize",function(tokens,target){
@@ -890,17 +1045,31 @@ jstex.newEnvironment("itemize",function(tokens,target){
     return jstex.expand(tokens,target.createChild("ul"));
 });
 
+// math
+
 jstex.newEnvironment("$",function(tokens,target){
     if(MathJax){
-	var d = new Date();
-	var t_millis = d.getTime()
+	var id = jstex.makeid();
 	var text = jstex.readUntilEnd(tokens,"$");
-	var math = target.createChild("span",{"id":"MathOutput_"+t_millis,"class":"MathJax"});
+	var math = target.createChild("span",{"id":"MathOutput_"+id,"class":"MathJax"});
 	math.innerHTML = text;
 	return true;
     } else {
 	return jstex.expand(tokens,target.createChild("span",{"class":"Math"}));
     }
+});
+
+jstex.newCommand("ensuremath",function(tokens,target){
+    if(MathJax){
+	var id = jstex.makeid();
+	var text = jstex.readNext(tokens);
+	var math = target.createChild("span",{"id":"MathOutput_"+id,"class":"MathJax"});
+	math.innerHTML = text;
+	return true;
+    } else {
+	return jstex.expandNext(tokens,target.createChild("span",{"style":{"font-style":"italic"}}));
+    }
+
 });
 
 /// package emulation
@@ -927,11 +1096,17 @@ jstex.ignore_package("hyperref");
 jstex.ignore_package("vicent");
 jstex.ignore_package("sqrcaps");
 jstex.ignore_package("multicol");
+jstex.ignore_package("color");
+jstex.ignore_package("xcolor");
+jstex.ignore_package("array");
+jstex.ignore_package("caption");
+jstex.ignore_package("titlesec");
 
 
 var style = document.createElement('style');
 style.type = 'text/css';
 style.innerHTML+= '.jstex_toctitle { font-weight:bold; font-size:1.17em; margin-bottom:1em; }';
+style.innerHTML+= '.jstex_refstyle               { display:inline; text-decoration:none; color: black; font-weight:normal; }';
 style.innerHTML+= '.jstex_tocstyle_section       { display:block; text-decoration:none; color: black; font-weight:bold; }';
 style.innerHTML+= '.jstex_tocstyle_subsection    { display:block; text-decoration:none; color: black; margin-left:1em;}';
 style.innerHTML+= '.jstex_tocstyle_subsubsection { display:block; text-decoration:none; color: black; font-style:italic; margin-left:2em;}';
