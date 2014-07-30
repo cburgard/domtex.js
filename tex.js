@@ -56,6 +56,9 @@ var jstex = {
 		cmd.isUnresolved = false;
 		cmd.isUndefined = true;
 	    }
+	    cmd.expand = function(){
+		return true;
+	    }
 	    cmd.toString = function(){return this.name};
 	    jstex.addCommand(cmd);
 	    return cmd;
@@ -80,6 +83,73 @@ var jstex = {
     getLastRef:function(elem){
 	if(jstex.scopes[0].lastRef) return jstex.scopes[0].lastRef;
 	else return jstex.container;
+    },
+    createFileDialogue:function(){
+	var hovercontainer = document.createElement("div");
+	hovercontainer.className="jstex_hovercontainer";
+	hovercontainer.id="jstex_fileDialogue";
+	hovercontainer.style.display="none";
+	document.body.appendChild(hovercontainer);
+	var hover = document.createElement("div");
+	hovercontainer.appendChild(hover);
+	hover.className="jstex_hover";
+	var header = document.createElement("div");
+	header.style.fontWeight="bold";
+	header.style.textAlign="center";
+	header.innerHTML="Missing File";
+	hover.appendChild(header);
+	var text = document.createElement("div");
+	text.innerHTML = ("A set of files has been requested by inclusion commands. However, jsTeX is unable to resolve the current location of these files. Would you like to manually provide them for jsTeX to find, or would you like to skip this process?");
+	hover.appendChild(text);
+	var tab = document.createElement("table");
+	hover.appendChild(tab);
+	tab.id="jstex_fileDialogueEntries";
+	hover.appendChild(tab);
+	var hr = document.createElement("tr");
+	tab.appendChild(hr);
+	var th = document.createElement("th");
+	th.innerText="command";
+	hr.appendChild(th);
+	var th = document.createElement("th");
+	th.innerText="name";
+	hr.appendChild(th);
+	var th = document.createElement("th");
+	th.innerText="type";
+	hr.appendChild(th);
+	var accept = document.createElement("input");
+	accept.id="jstex_fileDialogueAccept";
+	accept.type="button";
+	accept.value="Accept";
+	hover.appendChild(accept);
+    },
+    activateFileDialogue:function(callback){
+	var dialogue = document.getElementById("jstex_fileDialogue");
+	dialogue.style.display="block";
+	var btn = document.getElementById("jstex_fileDialogueAccept");
+	btn.onclick = function(){
+	    dialogue.style.display="none";
+	    callback();
+	}
+    },
+    addToFileDialogue:function(filename,info,type,handler){
+	var tab = document.getElementById("jstex_fileDialogueEntries");
+	var tr = document.createElement("tr");
+	tab.appendChild(tr);
+	var td = document.createElement("td");
+	td.innerText=info;
+	tr.appendChild(td);
+	var td = document.createElement("td");
+	td.innerText=filename;
+	tr.appendChild(td);
+	var td = document.createElement("td");
+	td.innerText=type;
+	tr.appendChild(td);
+	var td = document.createElement("td");
+	var input = document.createElement("input");
+	input.type="file";
+	input.addEventListener("change", handler, false);
+	td.appendChild(input);
+	tr.appendChild(td);
     },
     /////////////////////////////////////////////////////////////
     // The Element class converts meta-information to an actual DOM
@@ -410,10 +480,12 @@ var jstex = {
 	return tokens;
     },
     resolve : function(tokenstream){
+	var retval = false;
 	while(jstex.resolveNext(tokenstream)){
+	    retval = true;
 	    // do nothing
 	}
-	return true;
+	return retval;
     },
     resolveNext : function(tokenstream){
 	for(var i=0; i<tokenstream.length; i++){
@@ -426,7 +498,9 @@ var jstex = {
 	    }
 	    if(tokenstream[i].isUnresolved){
 		var tkn = tokenstream[i];
-		tokenstream[i] = tkn.resolve();
+		// read the argument of the input
+		tkn.resolve(tokenstream,i);
+		tokenstream[i] = jstex.getCommand("relax");
 		return true;
 	    }
 	}
@@ -630,7 +704,6 @@ var jstex = {
 	for(var i=0; i<links.length; i++){
 	    var obj = links[i];
 	    var id = obj.refid;
-	    console.log(obj,id);
 	    var refObj = document.getElementById(id);
 	    if(refObj){
 		obj.innerText=refObj.info;
@@ -652,6 +725,7 @@ var jstex = {
     /////////////////////////////////////////////////////////////
     // texdoc runs jstex on an entire document
     texdoc:function(source){
+	jstex.createFileDialogue();
 	jstex.extendDOM(jstex.buffer);
 	var begindocument = jstex.findenvbegin(source,"document");
 	var enddocument   = jstex.findenvend(source,"document");
@@ -671,8 +745,11 @@ var jstex = {
     },
     tex:function(source,target){
 	var tokens = jstex.tokenize(source);
-	jstex.resolve(tokens,target);
-	jstex.expand(tokens,target);
+	if(jstex.resolve(tokens,target)){
+	    jstex.activateFileDialogue(function(){jstex.expand(tokens,target);})
+	} else {
+	    jstex.expand(tokens,target);
+	}
     },
     // a couple of TeX primitives need to be hardcoded
     setLength : function(name,val){
@@ -727,6 +804,8 @@ jstex.newCommand("dots",     function(tokens,parent){parent.appendText(jstex.get
 jstex.newCommand("&",        function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&amp;"   )); return true});
 jstex.newCommand("%",        function(tokens,parent){parent.appendText(jstex.getHTMLAlias("%"   )); return true});
 
+jstex.ignoreCommand("relax");
+
 jstex.ignoreCommand("sloppy");
 jstex.ignoreCommand("makeatletter");
 jstex.ignoreCommand("makeatother");
@@ -747,6 +826,13 @@ jstex.newCommand("url",function(tokens,parent){
     parent.createChild("a",{"href":jstex.linkify(link)}).innerHTML=link;
     return true;
 });
+
+jstex.newCommand("footnote",function(tokens,parent){ 
+    var content = jstex.readNext(tokens);
+    parent.createChild("span",{"title":content}).innerHTML="*";
+    return true;
+});
+
 jstex.newCommand("author",function(tokens,parent){ 
     var cmd = jstex.newCommand("theauthor",function(toks,p){
 	jstex.expand(this.content,p);
@@ -766,7 +852,12 @@ jstex.newCommand("title",function(tokens,parent){
 });
 
 jstex.newCommand("maketitle",function(tokens,parent){ 
-    document.title = jstex.read(jstex.getCommand("thetitle").content);
+    var thetitle = jstex.getCommand("thetitle");
+    if(thetitle){
+	document.title = jstex.read(thetitle.content);
+    } else {
+	document.title = "Unnamed jsTeX document";
+    }
     return true;
 });
 
@@ -786,8 +877,28 @@ jstex.newCommand("@starttoc",function(tokens,parent){
 });
 
 
-jstex.newInclude("input",function(tokens,parent){
-    return "";
+jstex.newInclude("input",function(tokenstream,position){
+    var fname = jstex.read(tokenstream[position+1]);
+    console.log(fname);
+    var handler = function(evt){
+	var files = evt.target.files; 
+	for (var i = 0, f; f = files[i]; i++) {
+	    if (!f.type.match("text.*")) {
+		continue;
+	    }
+	    var reader = new FileReader();
+	    reader.onload = (function(theFile) {
+		return function(e) {
+		    var tokens = jstex.tokenize(e.target.result);
+		    jstex.resolve(tokens);
+		    tokenstream[position] = tokens;
+		    console.log("input file '"+fname+"' loaded");
+		};
+	    })(f);
+	    reader.readAsText(f);
+	};
+    };
+    jstex.addToFileDialogue(fname,"input","text",handler);
 });
 
 jstex.newCommand("caption",function(tokens,target){return jstex.expandNext(tokens,target.createChild("div",{"style":{"text-align":"center"}}))});
@@ -897,6 +1008,10 @@ jstex.newCommand("itshape",   function(tokens,target){return jstex.expand    (to
 jstex.newCommand("twistshape",function(tokens,target){return jstex.expand    (tokens,target.createChild("span",{"style":{"font-style":"italic"      }}))});
 jstex.newCommand("bfseries",  function(tokens,target){return jstex.expand    (tokens,target.createChild("span",{"style":{"font-weight":"bold"       }}))});
 jstex.newCommand("sqrcfamily",function(tokens,target){return jstex.expand    (tokens,target.createChild("span",{"style":{"font-variant":"small-caps"}}))});
+
+jstex.newCommand("centering",  function(tokens,target){return jstex.expand    (tokens,target.createChild("div",{"style":{"text-align":"center"       }}))});
+jstex.newCommand("flushleft",  function(tokens,target){return jstex.expand    (tokens,target.createChild("div",{"style":{"text-align":"left"       }}))});
+jstex.newCommand("flushright", function(tokens,target){return jstex.expand    (tokens,target.createChild("div",{"style":{"text-align":"right"       }}))});
 
 jstex.setLength("tiny","6pt");
 jstex.setLength("footnotesize","8pt");
@@ -1110,4 +1225,7 @@ style.innerHTML+= '.jstex_refstyle               { display:inline; text-decorati
 style.innerHTML+= '.jstex_tocstyle_section       { display:block; text-decoration:none; color: black; font-weight:bold; }';
 style.innerHTML+= '.jstex_tocstyle_subsection    { display:block; text-decoration:none; color: black; margin-left:1em;}';
 style.innerHTML+= '.jstex_tocstyle_subsubsection { display:block; text-decoration:none; color: black; font-style:italic; margin-left:2em;}';
-document.getElementsByTagName('head')[0].appendChild(style);
+style.innerHTML+= '.jstex_hovercontainer         { position:fixed; text-align:center; display:block; width:100%; height:100%; top:0px; left:0px; z-index:10 }';
+style.innerHTML+= '.jstex_hover                  { position:absolute; background:white; text-align:center; display:block; border:10px solid #C8C8C8; -moz-border-radius: 15px; border-radius: 15px; opacity: 0.9; z-index: 10; padding-bottom:10px; padding-left:10px; padding-right:10px; width:80%; top:10%; left:10%; max-height:80%; }';
+
+document.head.appendChild(style);
