@@ -386,6 +386,11 @@ var jstex = {
 		idx+=2;
 		continue;
 	    }
+	    if(input[idx] == '&'){
+		tokens.push(jstex.getCommand("cr"));
+		idx++;
+		continue;
+	    }
 	    if(input[idx] == '$'){
 		if(jstex.inMathMode){
 		    var tkn = jstex.getCommand("end");
@@ -676,11 +681,13 @@ var jstex = {
 	}
 	return jstex.expandNext(token,target);
     },
-    expandUntil:function(token,target,cmdname){
+    expandUntilAnyOf:function(token,target,cmdnames){
 	if(jstex.isArray(token)){
 	    var cnt = 0;
 	    while(token.length>0){
-		if(token[0].name == cmdname) return jstex.Status.READING;
+		for(var i=0; i<cmdnames.length; i++){
+		    if(token[0].name == cmdnames[i]) return jstex.Status.READING;
+		}
 		var retval = jstex.expandNext(token,target);
 		cnt++;
 		if(retval == jstex.Status.ENDSTREAM){
@@ -695,7 +702,10 @@ var jstex = {
 	    }
 	    return jstex.Status.ENDSTREAM;
 	}
-	return jstex.expandNext(token,target);
+	return jstex.expandNext(token,target);	
+    },
+    expandUntil:function(token,target,cmdname){
+	return jstex.expandUntilAnyOf(token,target,[cmdname]);
     },
     finalize:function(){
 	// fill the contents of references
@@ -805,6 +815,7 @@ jstex.newCommand("&",        function(tokens,parent){parent.appendText(jstex.get
 jstex.newCommand("%",        function(tokens,parent){parent.appendText(jstex.getHTMLAlias("%"   )); return true});
 
 jstex.ignoreCommand("relax");
+jstex.ignoreCommand("cr");
 
 jstex.ignoreCommand("sloppy");
 jstex.ignoreCommand("makeatletter");
@@ -1150,7 +1161,6 @@ jstex.newEnvironment("table",function(tokens,target){
 
 jstex.newEnvironment("minipage",function(tokens,target){return jstex.expand(tokens,target.createChild("div"))});
 
-
 jstex.newEnvironment("quotation",function(tokens,target){return jstex.expand(tokens,target.createChild("div",{"style":{"margin-left":"1em"}}))});
 
 jstex.newEnvironment("multicols",function(tokens,target){jstex.expandNext(tokens,jstex.buffer); return jstex.expand(tokens,target.createChild("div"))});
@@ -1158,6 +1168,73 @@ jstex.newEnvironment("multicols",function(tokens,target){jstex.expandNext(tokens
 jstex.newEnvironment("itemize",function(tokens,target){
     jstex.newCommand("item",  function(tokens,target){return jstex.expandUntil    (tokens,target.createChild("li",{}),"item")});
     return jstex.expand(tokens,target.createChild("ul"));
+});
+
+
+jstex.parseColumns = function(defs){
+    var retval = []
+    var idx = -1;
+    var borderwidth = "1px";
+    var bordercolor = "black";
+    var i = -1;
+    var nVerts = 0;
+    for(var i=0; i<defs.length; i++){
+	if(defs[i] == ' ') continue;
+	if(defs[i] == '|'){
+	    nVerts++;
+	    continue;
+	}
+	idx++;
+	retval[idx] = new Object();
+	if(nVerts > 0){
+	    if(nVerts == 1)
+		retval[idx]["border-left"]=borderwidth + " solid " + bordercolor;
+	    if(nVerts > 1)
+		retval[idx]["border-left"]=borderwidth + " double " + bordercolor;
+	    nVerts = 0;
+	}
+	if(defs[i] == 'c'){
+	    retval[idx]["text-align"] = "center";
+	}
+	if(defs[i] == 'r'){
+	    retval[idx]["text-align"] = "right";
+	}
+	if(defs[i] == 'l'){
+	    retval[idx]["text-align"] = "left";
+	}
+    }
+    if(nVerts > 0){
+	if(nVerts == 1)
+	    retval[idx]["border-right"]=borderwidth + " solid " + bordercolor;
+	if(nVerts > 1)
+	    retval[idx]["border-right"]=borderwidth + " double " + bordercolor;
+	nVerts = 0;
+    }
+    return retval;
+}
+
+jstex.newEnvironment("tabular",function(tokens,target){
+    var coldefs = jstex.readNext(tokens);
+    var cols = jstex.parseColumns(coldefs);
+    var colcnt = 0;
+    var tab = target.createChild("table",{"style":{"border-collapse":"collapse"}});
+    var status = jstex.Status.READING;
+    while(status == jstex.Status.READING){
+	var row = tab.createChild("tr");
+	while(colcnt < cols.length){
+	    var cell = row.createChild("td",{"style":cols[colcnt]});
+	    status = jstex.expandUntilAnyOf(tokens,cell,["cr","newline","tabularnewline"]);
+	    colcnt++;
+	    var next = tokens.shift();
+	    if(next.name == "cr"){
+		continue;
+	    } else {
+		break;
+	    }
+	}
+	colcnt = 0;
+    }
+    return jstex.Status.READING;
 });
 
 // math
