@@ -183,6 +183,15 @@ var jstex = {
 	}
 	return retval;
     },
+    prependArray:function(a,b){
+	if(a){
+	    var acopy = jstex.cloneArray(a);
+	    while(acopy.length > 0){
+		b.unshift(acopy[acopy.length-1]);
+		acopy.pop();
+	    }
+	}
+    },
     cloneArray:function(a){
 	var newArr = [];
 	for(var i=0; i<a.length; i++){
@@ -199,7 +208,7 @@ var jstex = {
 	}
 	return newArr;
     },
-    createChild:function(type,properties){
+   createChild:function(type,properties){
 	var child = document.createElement(type);
 	this.appendChild(child);
 	jstex.copyJSON(properties,child);
@@ -588,6 +597,17 @@ var jstex = {
 	console.log("ERROR: missing \\end{"+end+"}");
 	return buffer.innerHTML;
     },
+    shiftTokensUntil:function(tokens,commands){
+	var newtoks = [];
+	while(tokens.length > 0){
+	    for(var i=0; i<commands.length; i++){
+		if(tokens[0].name == commands[i])
+		    return newtoks;
+	    }
+	    newtoks.push(tokens.shift());
+	}
+	return newtoks;
+    },
     readUntilCommand:function(tokens,end){
 	var buffer = document.createElement("div");
 	jstex.extendDOM(buffer);
@@ -683,24 +703,13 @@ var jstex = {
     },
     expandUntilAnyOf:function(token,target,cmdnames){
 	if(jstex.isArray(token)){
-	    var cnt = 0;
-	    while(token.length>0){
-		for(var i=0; i<cmdnames.length; i++){
-		    if(token[0].name == cmdnames[i]) return jstex.Status.READING;
-		}
-		var retval = jstex.expandNext(token,target);
-		cnt++;
-		if(retval == jstex.Status.ENDSTREAM){
-		    return jstex.Status.ENDSTREAM;
-		}
-		if(retval == jstex.Status.ENDGROUP){
-		    return jstex.Status.ENDGROUP;
-		}
-		if(retval == jstex.Status.ERROR){
-		    return jstex.Status.ERROR;
-		}
+	    var tmp = jstex.shiftTokensUntil(token,cmdnames);
+	    var status = jstex.expand(tmp,target);
+	    if(token.length > 0){
+		return jstex.Status.READING;
+	    } else {
+		return status;
 	    }
-	    return jstex.Status.ENDSTREAM;
 	}
 	return jstex.expandNext(token,target);	
     },
@@ -1072,13 +1081,7 @@ jstex.newCommand("begin",function(tokens,target){
 	return jstex.Status.READING;
 
     }
-    if(env.beginTokens){
-	var beginToks = jstex.cloneArray(env.beginTokens);
-	while(beginToks.length > 0){
-	    tokens.unshift(beginToks[beginToks.length-1]);
-	    beginToks.pop();
-	}
-    }
+    jstex.prependArray(env.beginTokens,tokens);
 //    console.log("entering environment '"+envname+"'");
     env.expand(tokens,target);
     return jstex.Status.READING;
@@ -1184,8 +1187,14 @@ jstex.parseColumns = function(defs){
 	    nVerts++;
 	    continue;
 	}
+	if(defs[i] == '>'){
+	    i++;
+	    retval[idx+1] = {prefixTokens:defs[i]};
+	    continue;
+	}
 	idx++;
-	retval[idx] = new Object();
+	if(!retval[idx])
+	    retval[idx] = new Object();
 	if(nVerts > 0){
 	    if(nVerts == 1)
 		retval[idx]["border-left"]=borderwidth + " solid " + bordercolor;
@@ -1202,6 +1211,10 @@ jstex.parseColumns = function(defs){
 	if(defs[i] == 'l'){
 	    retval[idx]["text-align"] = "left";
 	}
+	if(defs[i] == 'p'){
+	    retval[idx]["width"] = jstex.read(defs[i+1]);
+	    i++;
+	}
     }
     if(nVerts > 0){
 	if(nVerts == 1)
@@ -1214,8 +1227,8 @@ jstex.parseColumns = function(defs){
 }
 
 jstex.newEnvironment("tabular",function(tokens,target){
-    var coldefs = jstex.readNext(tokens);
-    var cols = jstex.parseColumns(coldefs);
+    var defs = tokens.shift();
+    var cols = jstex.parseColumns(defs);
     var colcnt = 0;
     var tab = target.createChild("table",{"style":{"border-collapse":"collapse"}});
     var status = jstex.Status.READING;
@@ -1223,9 +1236,11 @@ jstex.newEnvironment("tabular",function(tokens,target){
 	var row = tab.createChild("tr");
 	while(colcnt < cols.length){
 	    var cell = row.createChild("td",{"style":cols[colcnt]});
+	    jstex.prependArray(cols[colcnt].prefixTokens,tokens);
 	    status = jstex.expandUntilAnyOf(tokens,cell,["cr","newline","tabularnewline"]);
 	    colcnt++;
 	    var next = tokens.shift();
+	    if(!next) return jstex.Status.READING;
 	    if(next.name == "cr"){
 		continue;
 	    } else {
@@ -1293,6 +1308,8 @@ jstex.ignore_package("xcolor");
 jstex.ignore_package("array");
 jstex.ignore_package("caption");
 jstex.ignore_package("titlesec");
+jstex.ignore_package("array");
+jstex.ignore_package("a4wide");
 
 
 var style = document.createElement('style');
