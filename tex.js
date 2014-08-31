@@ -321,13 +321,13 @@ var jstex = {
 	var tr = document.createElement("tr");
 	tab.appendChild(tr);
 	var td = document.createElement("td");
-	td.innerText=info;
+	td.innerHTML=info;
 	tr.appendChild(td);
 	var td = document.createElement("td");
-	td.innerText=filename;
+	td.innerHTML=filename;
 	tr.appendChild(td);
 	var td = document.createElement("td");
-	td.innerText=type;
+	td.innerHTML=type;
 	tr.appendChild(td);
 	var td = document.createElement("td");
 	var input = document.createElement("input");
@@ -657,12 +657,20 @@ var jstex = {
 	return buffer.innerHTML;
     },
     shiftTokensUntil:function(tokens,stoptoks){
+	// this 'black magic' envs counter is somewhat of a hack
+	// it is required to avoid exiting out of nested environments all too quickly at the moment
+	// however, at some point, this should be replaced by a cleaner solution
+	var envs = 0;
 	var newtoks = [];
 	while(tokens.length > 0){
-	    for(var i=0; i<stoptoks.length; i++){
-		if(tokens[0] == stoptoks[i])
-		    return newtoks;
+	    if(envs <= 0){
+		for(var i=0; i<stoptoks.length; i++){
+		    if(tokens[0] == stoptoks[i])
+			return newtoks;
+		}
 	    }
+	    if(tokens[0].name == "end")   envs--;
+	    if(tokens[0].name == "begin") envs++;
 	    newtoks.push(tokens.shift());
 	}
 	return newtoks;
@@ -692,9 +700,9 @@ var jstex = {
 	return buffer.innerHTML;
     },
     readUntilSymbol:function(tokens,end){
+	var toks = jstex.shiftTokensUntil(tokens,end);
 	var buffer = document.createElement("div");
 	jstex.extendDOM(buffer);
-	var toks = jstex.shiftTokensUntil(tokens,end);
 	jstex.expand(toks,buffer);
 	return buffer.innerHTML;
     },
@@ -807,19 +815,18 @@ var jstex = {
     findenvend : function(source,envname){
 	return source.indexOf("\\end{"+envname+"}");
     },
-    parseKeyValArg:function(tokens){
-	var tok = tokens.shift();
+    parseKeyValArg:function(token){
 	var x = true;
 	var obj = {};
-	while(tok.length > 0){
-	    x = jstex.readUntilSymbol(tok,",").replace(/,+$/, "");
+	while(token.length > 0){
+	    x = jstex.readUntilSymbol(token,[","]).replace(/,+$/, "");
 	    var sep = x.indexOf("=");
 	    var key = x.substr(0,sep).trim();
 	    var val = x.substr(sep+1).trim();
 	    if(key){
 		obj[key]=val;
 	    }
-	    tok.shift();
+	    token.shift();
 	}
 	return obj;
     },
@@ -1053,12 +1060,50 @@ jstex.newInclude("input",function(tokenstream,position){
     jstex.addToFileDialogue(fname,"input","text",handler);
 });
 
+jstex.newInclude("includegraphics",function(tokenstream,position){
+    var hasOptArg = tokenstream[position+1].optArg;
+    var fname = jstex.read(tokenstream[position+hasOptArg+1]);
+    if(hasOptArg){
+	var args = jstex.parseKeyValArg(tokenstream[position+1]);
+    }
+    console.log(fname);
+    var handler = function(evt){
+	var files = evt.target.files; 
+	for (var i = 0, f; f = files[i]; i++) {
+	    if (!f.type.match("image.*")) {
+		continue;
+	    }
+	    var reader = new FileReader();
+	    reader.onload = (function(theFile) {
+		return function(e) {
+		    var cmd = {content:e.target.result};
+		    tokenstream[position] = cmd;
+		    cmd.expand = function(tokens,parent){parent.createChild("img",this.properties).src = this.content; return true;};
+		    cmd.properties={"style":{}};
+		    // TODO: figure out how to handle these things ("\columnwidth" etc.)
+//		    if(args["width"]) cmd.properties.style["width"] = args["width"];
+//		    if(args["height"]) cmd.properties.width = args["height"];
+		    console.log("input file '"+fname+"' loaded");
+		};
+	    })(f);
+	    reader.readAsDataURL(f);
+	};
+    };
+    jstex.addToFileDialogue(fname,"includegraphics","image",handler);
+});
+
 ///// tricky things
 
 jstex.newCommand("url",function(tokens,parent){ 
     var link = jstex.readNext(tokens);
     parent.createChild("a",{"href":jstex.linkify(link)}).innerHTML=link;
     return true;
+});
+
+jstex.newCommand("href",function(tokens,parent){ 
+    var link = jstex.readNext(tokens);
+    var content = parent.createChild("a",{"href":jstex.linkify(link)});
+    return jstex.expandNext(tokens,content);
 });
 
 jstex.newCommand("footnote",function(tokens,parent){ 
@@ -1265,6 +1310,7 @@ jstex.newEnvironment("table",function(tokens,target){
 });
 
 jstex.printArray=function(arr,indent){
+    if(!indent) indent = "";
     for(var i=0; i<arr.length; i++){
 	if(jstex.isArray(arr[i])) jstex.printArray(arr[i],indent+" ");
 	else if(jstex.isString(arr[i])) console.log(indent+arr[i]);
@@ -1383,5 +1429,5 @@ style.innerHTML+= '.jstex_tocstyle_section       { display:block; text-decoratio
 style.innerHTML+= '.jstex_tocstyle_subsection    { display:block; text-decoration:none; color: black; margin-left:1em;}';
 style.innerHTML+= '.jstex_tocstyle_subsubsection { display:block; text-decoration:none; color: black; font-style:italic; margin-left:2em;}';
 style.innerHTML+= '.jstex_hovercontainer         { position:fixed; text-align:center; display:block; width:100%; height:100%; top:0px; left:0px; z-index:10 }';
-style.innerHTML+= '.jstex_hover                  { position:absolute; background:white; text-align:center; display:block; border:10px solid #C8C8C8; -moz-border-radius: 15px; border-radius: 15px; opacity: 0.9; z-index: 10; padding-bottom:10px; padding-left:10px; padding-right:10px; width:80%; top:10%; left:10%; max-height:80%; }';
+style.innerHTML+= '.jstex_hover                  { position:absolute; background:white; text-align:center; display:block; border:10px solid #C8C8C8; -moz-border-radius: 15px; border-radius: 15px; opacity: 0.9; z-index: 10; padding-bottom:10px; padding-left:10px; padding-right:10px; width:80%; top:10%; left:10%; max-height:80%; overflow:scroll; }';
 document.head.appendChild(style);
