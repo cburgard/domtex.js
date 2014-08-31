@@ -28,22 +28,26 @@
   }
   function handleFileSelect(evt) {
     var files = evt.target.files; 
-    for (var i = 0, f; f = files[i]; i++) {
-       var title = document.createElement("div");
-       title.innerHTML= escape(f.name) + " - " + f.size + " bytes, last modified: " + (f.lastModifiedDate ? f.lastModifiedDate.toLocaleDateString() : "n/a");
-       title.className="title";
-       document.getElementById("main").insertBefore(title, null);
-      if (!f.type.match("text.*")) {
-        continue;
+      for (var i = 0, f; f = files[i]; i++) {
+	  var title = document.createElement("div");
+	  title.className="title";
+	  document.getElementById("main").insertBefore(title, null);
+	  if(!f.name.match(".*.tex")){
+	      title.innerHTML= escape(f.name) + " is not a TeX file!";
+	  } else {
+	      title.innerHTML= escape(f.name) + " - " + f.size + " bytes, last modified: " + (f.lastModifiedDate ? f.lastModifiedDate.toLocaleDateString() : "n/a");
+	      if (!f.type.match("text.*")) {
+		  continue;
+	      }
+	      var reader = new FileReader();
+	      reader.onload = (function(theFile) {
+		  return function(e) {
+		      document.getElementById("main").insertBefore(jstex.texdoc(e.target.result), null);
+		  };
+	      })(f);
+	      reader.readAsText(f);
+	  }
       }
-      var reader = new FileReader();
-      reader.onload = (function(theFile) {
-        return function(e) {
-          document.getElementById("main").insertBefore(jstex.texdoc(e.target.result), null);
-        };
-      })(f);
-      reader.readAsText(f);
-    }
   }
 </script>
 </head>

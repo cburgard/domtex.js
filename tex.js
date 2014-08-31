@@ -1,159 +1,77 @@
 var jstex = {
-    packages: {},
     /////////////////////////////////////////////////////////////
-    // The following states form return values
-    Status : {
-	READING: true,
-	ENDGROUP: false,
-	ENDSTREAM: -1,
-	ERROR: -2
-    },
-    /////////////////////////////////////////////////////////////
-    // The Command class holds a single TeX primitive or command
+    // basic functions for stringparsing
     ////////////////////////////////////////////////////////////
-    addCommand:function(cmd){
-	jstex.scopes[0].commands[cmd.name] = cmd;
+    beginsWith : function(str,begin){
+	if(str.indexOf(begin) == 0)
+	    return true;
+	return false;
     },
-    newCommand : function(name,expand){
-	var cmd = jstex.getCommand(name);
-	if(cmd){
-	    if(cmd.isUndefined){
-		cmd.isUndefined = false;
-		cmd.expand = expand;
-		return;
-	    } else {
-		console.log("command '"+name+"' is already defined!");
-		return cmd;
-	    }
-	} else {
-//	    console.log("creating command '"+name+"' in scope "+jstex.scopes.length);
-	    cmd = new Object();
-	    cmd.name = name;
-	    if(expand){
-		cmd.expand = expand;
-		cmd.isUndefined = false;
-	    } else {
-		cmd.isUndefined = true;
-	    }
-	    cmd.toString = function(){return this.name};
-	    jstex.addCommand(cmd);
-	    return cmd;
+    linkify : function(str){
+	if(jstex.beginsWith(str,"http://") || jstex.beginsWith(str,"https://") || jstex.beginsWith(str,"mailto:"))
+	    return str;
+	return "http://"+str;
+    },
+    makeid : function(){
+	var text = "";
+	var possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+	for( var i=0; i < 5; i++ )
+            text += possible.charAt(Math.floor(Math.random() * possible.length));
+	return text;
+    },
+    findParenthesisMatch : function(input, openpar, closepar, idx){
+	var parstack = 0;
+	while(idx < input.length){
+	    if(input[idx] == openpar)
+		parstack++;
+	    if(input[idx] == closepar)
+		parstack--;
+	    if(parstack == 0)
+		return idx;
+	    idx++;
 	}
+	return -1;
     },
-    newInclude : function(name,resolve){
-	var cmd = jstex.getCommand(name);
-	if(cmd){
-	    console.log("command '"+name+"' is already defined!");
-	} else {
-	    console.log("creating include command '"+name+"' in scope "+jstex.scopes.length);
-	    cmd = new Object();
-	    cmd.name = name;
-	    if(resolve){
-		cmd.resolve = resolve;
-		cmd.isUnresolved = true;
-		cmd.isUndefined = false;
+    findNext : function(input, str, idx){
+	var found = 0;
+	while(idx+found < input.length){
+	    if(input[idx+found] == str[found]){
+		found++;
 	    } else {
-		cmd.isUnresolved = false;
-		cmd.isUndefined = true;
+		idx++;
+		found = 0;
 	    }
-	    cmd.expand = function(){
-		return true;
+	    if(found == str.length)
+		return idx;
+	}
+	return -1;
+    },
+    findNextOf : function(input, str, idx){
+	while(idx < input.length){
+	    for(var i=0; i<str.length; i++){
+		if(input[idx] == str[i]){
+		    return idx;
+		}
 	    }
-	    cmd.toString = function(){return this.name};
-	    jstex.addCommand(cmd);
-	    return cmd;
+	    idx++;
 	}
+	return -1;
     },
-    getCommand:function(name){
-	return jstex.scopes[0].commands[name];
-    },
-    getCounter:function(name){
-	return jstex.scopes[0].counters[name];
-    },
-    newCounter:function(name){
-	jstex.scopes[0].counters[name] = 0;
-    },
-    stepCounter:function(name){
-	jstex.scopes[0].counters[name] = jstex.scopes[0].counters[name] + 1;
-    },
-    setLastRef:function(elem,info){
-	jstex.scopes[0].lastRef = elem;
-	elem.info = info;
-    },
-    getLastRef:function(elem){
-	if(jstex.scopes[0].lastRef) return jstex.scopes[0].lastRef;
-	else return jstex.container;
-    },
-    createFileDialogue:function(){
-	var hovercontainer = document.createElement("div");
-	hovercontainer.className="jstex_hovercontainer";
-	hovercontainer.id="jstex_fileDialogue";
-	hovercontainer.style.display="none";
-	document.body.appendChild(hovercontainer);
-	var hover = document.createElement("div");
-	hovercontainer.appendChild(hover);
-	hover.className="jstex_hover";
-	var header = document.createElement("div");
-	header.style.fontWeight="bold";
-	header.style.textAlign="center";
-	header.innerHTML="Missing File";
-	hover.appendChild(header);
-	var text = document.createElement("div");
-	text.innerHTML = ("A set of files has been requested by inclusion commands. However, jsTeX is unable to resolve the current location of these files. Would you like to manually provide them for jsTeX to find, or would you like to skip this process?");
-	hover.appendChild(text);
-	var tab = document.createElement("table");
-	hover.appendChild(tab);
-	tab.id="jstex_fileDialogueEntries";
-	hover.appendChild(tab);
-	var hr = document.createElement("tr");
-	tab.appendChild(hr);
-	var th = document.createElement("th");
-	th.innerText="command";
-	hr.appendChild(th);
-	var th = document.createElement("th");
-	th.innerText="name";
-	hr.appendChild(th);
-	var th = document.createElement("th");
-	th.innerText="type";
-	hr.appendChild(th);
-	var accept = document.createElement("input");
-	accept.id="jstex_fileDialogueAccept";
-	accept.type="button";
-	accept.value="Accept";
-	hover.appendChild(accept);
-    },
-    activateFileDialogue:function(callback){
-	var dialogue = document.getElementById("jstex_fileDialogue");
-	dialogue.style.display="block";
-	var btn = document.getElementById("jstex_fileDialogueAccept");
-	btn.onclick = function(){
-	    dialogue.style.display="none";
-	    callback();
+    // this prevents any overhead from creating the object each time
+    decodeHTMLEntities:function(str) {
+	if(str && typeof str === 'string') {
+	    // strip script/html tags
+	    str = str.replace(/<script[^>]*>([\S\s]*?)<\/script>/gmi, '');
+	    str = str.replace(/<\/?\w(?:[^"'>]|"[^"]*"|'[^']*')*>/gmi, '');
+	    jstex.buffer.innerHTML = str;
+	    str = jstex.buffer.textContent;
+	    jstex.buffer.textContent = '';
 	}
-    },
-    addToFileDialogue:function(filename,info,type,handler){
-	var tab = document.getElementById("jstex_fileDialogueEntries");
-	var tr = document.createElement("tr");
-	tab.appendChild(tr);
-	var td = document.createElement("td");
-	td.innerText=info;
-	tr.appendChild(td);
-	var td = document.createElement("td");
-	td.innerText=filename;
-	tr.appendChild(td);
-	var td = document.createElement("td");
-	td.innerText=type;
-	tr.appendChild(td);
-	var td = document.createElement("td");
-	var input = document.createElement("input");
-	input.type="file";
-	input.addEventListener("change", handler, false);
-	td.appendChild(input);
-	tr.appendChild(td);
+	return str;
     },
     /////////////////////////////////////////////////////////////
-    // The Element class converts meta-information to an actual DOM
-    // element
+    // DOM elements created by jsTeX have a couple of additional
+    // functions
     ////////////////////////////////////////////////////////////
     extendDOM:function(obj){
 	obj.createChild = jstex.createChild;
@@ -232,38 +150,12 @@ var jstex = {
 	    "~" : " "
 	}
     } ],
-    enterScope:function(){
-	curscope = jstex.scopes[0];
-	scope = {
-	    commands :     jstex.copyObject(curscope.commands),
-	    environments : jstex.copyObject(curscope.environments),
-	    counters :     jstex.copyObject(curscope.counters),
-	    lengths :      jstex.copyObject(curscope.lengths),
-	    lastRef:       curscope.lastRef,
-	    tags : curscope.tags,
-	    aliases : curscope.aliases
-	}
-	jstex.scopes.unshift(scope);
-//	console.log("entering scope "+jstex.scopes.length);
+    createDummy:function(title){
+	var dummy = document.createElement("span");
+	dummy.title=title;
+	dummy.innerHTML = jstex.unknownCSalias;
+	return dummy;
     },
-    leaveScope:function(){
-	if(jstex.scopes.length > 0){
-//	    console.log("leaving scope "+jstex.scopes.length);
-	    jstex.scopes.shift()
-	} else {
-	    console.log("ERROR in leaveScope: stack is empty!")
-	}
-    },
-    getEnvironment:function(name){
-	return jstex.scopes[0].environments[name];
-    },
-    addEnvironment:function(env){
-	jstex.scopes[0].environments[env.name] = env;
-    },
-    getLength:function(name){
-	return jstex.scopes[0].lengths[name];
-    },
-    buffer:document.createElement('div'),
     getHTMLAlias:function(code){
 	if(!jstex.scopes[0].aliases[code]){
 	    jstex.scopes[0].aliases[code] = jstex.decodeHTMLEntities(code);
@@ -282,74 +174,245 @@ var jstex = {
 	return (elem instanceof HTMLElement);
     },
     /////////////////////////////////////////////////////////////
-    // basic functions for stringparsing
+    // TeX requires scoping, which is emulated here
     ////////////////////////////////////////////////////////////
-    beginsWith : function(str,begin){
-	if(str.indexOf(begin) == 0)
-	    return true;
-	return false;
-    },
-    linkify : function(str){
-	if(jstex.beginsWith(str,"http://") || jstex.beginsWith(str,"https://") || jstex.beginsWith(str,"mailto:"))
-	    return str;
-	return "http://"+str;
-    },
-    makeid : function(){
-	var text = "";
-	var possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-	for( var i=0; i < 5; i++ )
-            text += possible.charAt(Math.floor(Math.random() * possible.length));
-	return text;
-    },
-    findParenthesisMatch : function(input, openpar, closepar, idx){
-	var parstack = 0;
-	while(idx < input.length){
-	    if(input[idx] == openpar)
-		parstack++;
-	    if(input[idx] == closepar)
-		parstack--;
-	    if(parstack == 0)
-		return idx;
-	    idx++;
+    enterScope:function(){
+	curscope = jstex.scopes[0];
+	scope = {
+	    commands :     jstex.copyObject(curscope.commands),
+	    environments : jstex.copyObject(curscope.environments),
+	    counters :     jstex.copyObject(curscope.counters),
+	    lengths :      jstex.copyObject(curscope.lengths),
+	    lastRef:       curscope.lastRef,
+	    tags :         curscope.tags,
+	    aliases :      curscope.aliases
 	}
-	return -1;
+	jstex.scopes.unshift(scope);
+//	console.log("entering scope "+jstex.scopes.length);
     },
-    findNext : function(input, str, idx){
-	var found = 0;
-	while(idx+found < input.length){
-	    if(input[idx+found] == str[found]){
-		found++;
+    leaveScope:function(){
+	if(jstex.scopes.length > 0){
+//	    console.log("leaving scope "+jstex.scopes.length);
+	    jstex.scopes.shift()
+	} else {
+	    console.log("ERROR in leaveScope: stack is empty!")
+	}
+    },
+    /////////////////////////////////////////////////////////////
+    // The following states form return values
+    /////////////////////////////////////////////////////////////
+    Status : {
+	READING: true,
+	ENDGROUP: false,
+	ENDSTREAM: -1,
+	ERROR: -2
+    },
+    buffer:document.createElement('div'),
+    packages: {},
+    resources: {},
+    /////////////////////////////////////////////////////////////
+    // The Command class holds a single TeX primitive or command
+    ////////////////////////////////////////////////////////////
+    addCommand:function(cmd){
+	jstex.scopes[0].commands[cmd.name] = cmd;
+    },
+    getCommand:function(name){
+	return jstex.scopes[0].commands[name];
+    },
+    newCommand : function(name,expand){
+	var cmd = jstex.getCommand(name);
+	if(cmd){
+	    if(cmd.isUndefined){
+		cmd.isUndefined = false;
+		cmd.expand = expand;
+		return;
 	    } else {
-		idx++;
-		found = 0;
+		console.log("command '"+name+"' is already defined!");
+		return cmd;
 	    }
-	    if(found == str.length)
-		return idx;
-	}
-	return -1;
-    },
-    findNextOf : function(input, str, idx){
-	while(idx < input.length){
-	    for(var i=0; i<str.length; i++){
-		if(input[idx] == str[i]){
-		    return idx;
-		}
+	} else {
+	    cmd = new Object();
+	    cmd.name = name;
+	    if(expand){
+		cmd.expand = expand;
+		cmd.isUndefined = false;
+	    } else {
+		cmd.isUndefined = true;
 	    }
-	    idx++;
+	    cmd.toString = function(){return this.name};
+	    jstex.addCommand(cmd);
+	    return cmd;
 	}
-	return -1;
     },
-    // this prevents any overhead from creating the object each time
-    decodeHTMLEntities:function(str) {
-	if(str && typeof str === 'string') {
-	    // strip script/html tags
-	    str = str.replace(/<script[^>]*>([\S\s]*?)<\/script>/gmi, '');
-	    str = str.replace(/<\/?\w(?:[^"'>]|"[^"]*"|'[^']*')*>/gmi, '');
-	    jstex.buffer.innerHTML = str;
-	    str = jstex.buffer.textContent;
-	    jstex.buffer.textContent = '';
+    ignoreCommand : function(name,argc){
+	if(!argc) argc=0;
+	expand = function(tokens,parent){for(var i=0; i<this.argc; i++) tokens.shift(); return true;};
+	var cmd = jstex.newCommand(name,expand);
+	cmd.argc = argc;
+    },
+    /////////////////////////////////////////////////////////////
+    // include commands are special because javascript does not allow
+    // local file access
+    /////////////////////////////////////////////////////////////
+    newInclude : function(name,resolve){
+	var cmd = jstex.getCommand(name);
+	if(cmd){
+	    console.log("command '"+name+"' is already defined!");
+	} else {
+	    console.log("creating include command '"+name+"' in scope "+jstex.scopes.length);
+	    cmd = new Object();
+	    cmd.name = name;
+	    if(resolve){
+		cmd.resolve = resolve;
+		cmd.isUnresolved = true;
+		cmd.isUndefined = false;
+	    } else {
+		cmd.isUnresolved = false;
+		cmd.isUndefined = true;
+	    }
+	    cmd.expand = function(){
+		return true;
+	    }
+	    cmd.toString = function(){return this.name};
+	    jstex.addCommand(cmd);
+	    return cmd;
 	}
-	return str;
+    },
+    createFileDialogue:function(){
+	var hovercontainer = document.createElement("div");
+	hovercontainer.className="jstex_hovercontainer";
+	hovercontainer.id="jstex_fileDialogue";
+	hovercontainer.style.display="none";
+	document.body.appendChild(hovercontainer);
+	var hover = document.createElement("div");
+	hovercontainer.appendChild(hover);
+	hover.className="jstex_hover";
+	var header = document.createElement("div");
+	header.style.fontWeight="bold";
+	header.style.textAlign="center";
+	header.innerHTML="Missing File";
+	hover.appendChild(header);
+	var text = document.createElement("div");
+	text.innerHTML = ("A set of files has been requested by inclusion commands. However, jsTeX is unable to resolve the current location of these files. Would you like to manually provide them for jsTeX to find, or would you like to skip this process?");
+	hover.appendChild(text);
+	var tab = document.createElement("table");
+	hover.appendChild(tab);
+	tab.id="jstex_fileDialogueEntries";
+	hover.appendChild(tab);
+	var hr = document.createElement("tr");
+	tab.appendChild(hr);
+	var th = document.createElement("th");
+	th.innerText="command";
+	hr.appendChild(th);
+	var th = document.createElement("th");
+	th.innerText="name";
+	hr.appendChild(th);
+	var th = document.createElement("th");
+	th.innerText="type";
+	hr.appendChild(th);
+	var accept = document.createElement("input");
+	accept.id="jstex_fileDialogueAccept";
+	accept.type="button";
+	accept.value="Accept";
+	hover.appendChild(accept);
+    },
+    addToFileDialogue:function(filename,info,type,handler){
+	var tab = document.getElementById("jstex_fileDialogueEntries");
+	var tr = document.createElement("tr");
+	tab.appendChild(tr);
+	var td = document.createElement("td");
+	td.innerText=info;
+	tr.appendChild(td);
+	var td = document.createElement("td");
+	td.innerText=filename;
+	tr.appendChild(td);
+	var td = document.createElement("td");
+	td.innerText=type;
+	tr.appendChild(td);
+	var td = document.createElement("td");
+	var input = document.createElement("input");
+	input.type="file";
+	input.addEventListener("change", handler, false);
+	td.appendChild(input);
+	tr.appendChild(td);
+    },
+    activateFileDialogue:function(callback){
+	var dialogue = document.getElementById("jstex_fileDialogue");
+	dialogue.style.display="block";
+	var btn = document.getElementById("jstex_fileDialogueAccept");
+	btn.onclick = function(){
+	    dialogue.style.display="none";
+	    callback();
+	}
+    },
+    /////////////////////////////////////////////////////////////
+    // for the same reasons, package inclusion needs to be treated
+    // separately
+    ////////////////////////////////////////////////////////////
+    provide_package:function(name,path){
+	var script= document.createElement('script');
+	script.type= 'text/javascript';
+	script.async=false;
+	script.src=path;
+	document.head.appendChild(script);
+	console.log("providing package '"+name+"' from path '"+path+"'");
+	return true;
+    },
+    ignore_package:function(name){
+	jstex.packages[name] = { load:function(args){ return true; } };
+	return true;
+    },
+    /////////////////////////////////////////////////////////////
+    // environments are handled analogously to commands
+    ////////////////////////////////////////////////////////////
+    getEnvironment:function(name){
+	return jstex.scopes[0].environments[name];
+    },
+    addEnvironment:function(env){
+	jstex.scopes[0].environments[env.name] = env;
+    },
+    newEnvironment : function(name,expand){
+	var env = new Object();
+	env.name = name;
+	env.expand=expand;
+	jstex.addEnvironment(env);
+	return env;
+    },
+    /////////////////////////////////////////////////////////////
+    // counters hold integer numbers
+    ////////////////////////////////////////////////////////////
+    getCounter:function(name){
+	return jstex.scopes[0].counters[name];
+    },
+    newCounter:function(name){
+	jstex.scopes[0].counters[name] = 0;
+    },
+    stepCounter:function(name){
+	jstex.scopes[0].counters[name] = jstex.scopes[0].counters[name] + 1;
+    },
+    /////////////////////////////////////////////////////////////
+    // lengths hold numbers and units
+    ////////////////////////////////////////////////////////////
+    newLength:function(name){
+	jstex.scopes[0].lengths[name]="0pt";
+    },
+    getLength:function(name){
+	return jstex.scopes[0].lengths[name];
+    },
+    setLength : function(name,val){
+	jstex.scopes[0].lengths[name] = val;
+    },
+    /////////////////////////////////////////////////////////////
+    // for TeXs 'label' mechanism, we need to track referencable
+    // objects within scopes
+    ////////////////////////////////////////////////////////////
+    getLastRef:function(elem){
+	if(jstex.scopes[0].lastRef) return jstex.scopes[0].lastRef;
+	else return jstex.container;
+    },
+    setLastRef:function(elem,info){
+	jstex.scopes[0].lastRef = elem;
+	elem.info = info;
     },
     /////////////////////////////////////////////////////////////
     // tokenization is the first step of the processing
@@ -379,7 +442,7 @@ var jstex = {
 	    }
 	    if(input[idx] == '\n' || input[idx] == '\r'){
 		if(respectnewlines == 1){
-		    tokens.push(jstex.getCommand('par'));
+		    tokens.push(jstex.getCommand("par"));
 		} else if(respectblanks){
 		    tokens.push(' ');
 		}
@@ -493,6 +556,11 @@ var jstex = {
 	}
 	return tokens;
     },
+    /////////////////////////////////////////////////////////////
+    // resolving tokens is the second step. this is required in jsTeX
+    // because include commands cannot be expanded trivially and might
+    // need user interaction to provide a file handle
+    ////////////////////////////////////////////////////////////
     resolve : function(tokenstream){
 	var retval = false;
 	while(jstex.resolveNext(tokenstream)){
@@ -520,18 +588,9 @@ var jstex = {
 	}
 	return false;
     },
-    findenvbegin : function(source,envname){
-	var s = "\\begin{"+envname+"}";
-	var idx = source.indexOf(s);
-	if(idx < 0) return idx;
-	return idx+s.length;
-    },
-    findenvend : function(source,envname){
-	return source.indexOf("\\end{"+envname+"}");
-    },
     /////////////////////////////////////////////////////////////
-    // expansion is the second step
-    // here, tokens are replaced with their html manifestation
+    // expansion is the third step. tokens are expanded and append
+    // their HTML manifestation to the DOM.
     /////////////////////////////////////////////////////////////
     readNumber:function(tokens){
 	var buffer = document.createElement("div");
@@ -597,50 +656,58 @@ var jstex = {
 	console.log("ERROR: missing \\end{"+end+"}");
 	return buffer.innerHTML;
     },
-    shiftTokensUntil:function(tokens,commands){
+    shiftTokensUntil:function(tokens,stoptoks){
 	var newtoks = [];
 	while(tokens.length > 0){
-	    for(var i=0; i<commands.length; i++){
-		if(tokens[0].name == commands[i])
+	    for(var i=0; i<stoptoks.length; i++){
+		if(tokens[0] == stoptoks[i])
 		    return newtoks;
 	    }
 	    newtoks.push(tokens.shift());
 	}
 	return newtoks;
     },
+    shiftTokensUntilCommand:function(tokens,stopcmds){
+	if(jstex.isArray(stopcmds)){
+	    var stoptoks = [];
+	    for(var i=0; i<stopcmds.length; i++){
+		stoptoks.push(jstex.getCommand(stopcmds[i]));
+	    }
+	    return jstex.shiftTokensUntil(tokens,stoptoks);
+	} else if(jstex.isString(stopcmds)){
+	    return jstex.shiftTokensUntil(tokens,[jstex.getCommand(stopcmds)]);
+	} else if(stopcmds.expand){
+	    return jstex.shiftTokensUntil(tokens,[stopcmds]);
+	}
+	console.log("ERROR in shiftTokensUntilCommand: unknown argument '"+stopcmds+"'!");
+    },
     readUntilCommand:function(tokens,end){
 	var buffer = document.createElement("div");
 	jstex.extendDOM(buffer);
-	while(tokens.length > 0){
-	    if(tokens[0].name !== end){
-		jstex.expandNext(tokens,buffer);
-		continue;
-	    }
-	    jstex.expandNext(tokens,buffer);
-	    return buffer.innerHTML;
+	var toks = jstex.shiftTokensUntilCommand(tokens,end);
+	if(tokens.length < 1){
+	    console.log("ERROR: missing \\"+end);
 	}
-	console.log("ERROR: missing \\"+end);
+	jstex.expand(toks,buffer);
 	return buffer.innerHTML;
     },
     readUntilSymbol:function(tokens,end){
 	var buffer = document.createElement("div");
 	jstex.extendDOM(buffer);
-	while(tokens.length > 0){
-	    if(tokens[0] !== end){
-		jstex.expandNext(tokens,buffer);
-		continue;
-	    }
-	    jstex.expandNext(tokens,buffer);
-	    return buffer.innerHTML;
-	}
-//	console.log("ERROR: no '"+end+"' found!");
+	var toks = jstex.shiftTokensUntil(tokens,end);
+	jstex.expand(toks,buffer);
 	return buffer.innerHTML;
     },
-    createDummy:function(title){
-	var dummy = document.createElement("span");
-	dummy.title=title;
-	dummy.innerHTML = jstex.unknownCSalias;
-	return dummy;b
+    expandUntilCommand:function(tokens,target,cmdnames){
+       if(jstex.isArray(tokens)){
+	   var toks = jstex.shiftTokensUntilCommand(tokens,cmdnames);
+	   var status = jstex.expand(toks,target);
+	   if(tokens.length > 0){
+	       return jstex.Status.READING;
+	   }
+	   return status;
+       }
+       return jstex.expandNext(tokens,target);  
     },
     expandNext:function(tokens,target){
 	if(!target || !target.createChild){
@@ -667,7 +734,6 @@ var jstex = {
 	    target.appendChild(jstex.createDummy(token.name));
 	    return jstex.Status.READING;
 	} else if(token.expand !== undefined){
-//	    console.log("expanding '"+token.name+"'");
 	    var retval = token.expand(tokens,target);
 	    if(retval == jstex.Status.ERROR){
 		console.log("the command '"+token.name+"' reported an error during expansion!")
@@ -701,21 +767,11 @@ var jstex = {
 	}
 	return jstex.expandNext(token,target);
     },
-    expandUntilAnyOf:function(token,target,cmdnames){
-	if(jstex.isArray(token)){
-	    var tmp = jstex.shiftTokensUntil(token,cmdnames);
-	    var status = jstex.expand(tmp,target);
-	    if(token.length > 0){
-		return jstex.Status.READING;
-	    } else {
-		return status;
-	    }
-	}
-	return jstex.expandNext(token,target);	
-    },
-    expandUntil:function(token,target,cmdname){
-	return jstex.expandUntilAnyOf(token,target,[cmdname]);
-    },
+    /////////////////////////////////////////////////////////////
+    // finalization is the last step. this step replaces the
+    // neccessity to rerun TeX in that it resolves any open issues
+    // (like references, etc) in one go
+    /////////////////////////////////////////////////////////////
     finalize:function(){
 	// fill the contents of references
 	var links = document.getElementsByClassName("jstex_refstyle");
@@ -727,7 +783,7 @@ var jstex = {
 	    if(refObj){
 		obj.innerText=refObj.info;
 	    } else {
-		obj.innerText=jstex.unknownCSalias;
+		obj.innerHTML=jstex.unknownCSalias;
 	    }
 	}
 	// execute math rendering
@@ -740,7 +796,86 @@ var jstex = {
 	}	
     },
     /////////////////////////////////////////////////////////////
-    // plugging it all together
+    // some special parsing functions need to be defined as glue code
+    /////////////////////////////////////////////////////////////
+    findenvbegin : function(source,envname){
+	var s = "\\begin{"+envname+"}";
+	var idx = source.indexOf(s);
+	if(idx < 0) return idx;
+	return idx+s.length;
+    },
+    findenvend : function(source,envname){
+	return source.indexOf("\\end{"+envname+"}");
+    },
+    parseKeyValArg:function(tokens){
+	var tok = tokens.shift();
+	var x = true;
+	var obj = {};
+	while(tok.length > 0){
+	    x = jstex.readUntilSymbol(tok,",").replace(/,+$/, "");
+	    var sep = x.indexOf("=");
+	    var key = x.substr(0,sep).trim();
+	    var val = x.substr(sep+1).trim();
+	    if(key){
+		obj[key]=val;
+	    }
+	    tok.shift();
+	}
+	return obj;
+    },
+    parseColumnArg:function(defs){
+	var retval = []
+	var idx = -1;
+	var borderwidth = "1px";
+	var bordercolor = "black";
+	var i = -1;
+	var nVerts = 0;
+	for(var i=0; i<defs.length; i++){
+	    if(defs[i] == ' ') continue;
+	    if(defs[i] == '|'){
+		nVerts++;
+		continue;
+	    }
+	    if(defs[i] == '>'){
+		i++;
+		retval[idx+1] = {prefixTokens:defs[i]};
+		continue;
+	    }
+	    idx++;
+	    if(!retval[idx])
+		retval[idx] = new Object();
+	    if(nVerts > 0){
+		if(nVerts == 1)
+		    retval[idx]["border-left"]=borderwidth + " solid " + bordercolor;
+		if(nVerts > 1)
+		    retval[idx]["border-left"]=borderwidth + " double " + bordercolor;
+		nVerts = 0;
+	    }
+	    if(defs[i] == 'c'){
+		retval[idx]["text-align"] = "center";
+	    }
+	    if(defs[i] == 'r'){
+		retval[idx]["text-align"] = "right";
+	    }
+	    if(defs[i] == 'l'){
+		retval[idx]["text-align"] = "left";
+	    }
+	    if(defs[i] == 'p'){
+		retval[idx]["width"] = jstex.read(defs[i+1]);
+		i++;
+	    }
+	}
+	if(nVerts > 0){
+	    if(nVerts == 1)
+		retval[idx]["border-right"]=borderwidth + " solid " + bordercolor;
+	    if(nVerts > 1)
+		retval[idx]["border-right"]=borderwidth + " double " + bordercolor;
+	    nVerts = 0;
+	}
+	return retval;
+    },
+    /////////////////////////////////////////////////////////////
+    // in the end, we just need to plug it all together
     /////////////////////////////////////////////////////////////
     // texdoc runs jstex on an entire document
     texdoc:function(source){
@@ -771,24 +906,6 @@ var jstex = {
 	}
     },
     // a couple of TeX primitives need to be hardcoded
-    setLength : function(name,val){
-	jstex.scopes[0].lengths[name] = val;
-	return "setting length "+name+"="+val;
-    },
-    newEnvironment : function(name,expand){
-	var env = new Object();
-	env.name = name;
-	env.expand=expand;
-	jstex.addEnvironment(env);
-	return env;
-    },
-    ignoreCommand : function(name,argc){
-	if(!argc) argc=0;
-	expand = function(tokens,parent){for(var i=0; i<this.argc; i++) tokens.shift(); return true;};
-	var cmd = jstex.newCommand(name,expand);
-	cmd.argc = argc;
-    },
-    resources: {}
 }
 
 // general setup for TOC, LOF, LOT, etc...
@@ -796,7 +913,6 @@ jstex.resources.tableofcontents=document.createElement("div");
 jstex.extendDOM(jstex.resources.tableofcontents);
 jstex.resources.tableofcontents_title = jstex.resources.tableofcontents.createChild("div",{"id":"jstex_toctitle","className":"jstex_toctitle"})
 jstex.resources.tableofcontents_title.innerHTML="Table of Contents";
-
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
@@ -807,10 +923,13 @@ jstex.resources.tableofcontents_title.innerHTML="Table of Contents";
 
 //// basic symbols
 //jstex.newCommand("par",      function(tokens,parent){ parent.appendChild(document.createElement("br")); return true; });
-jstex.newCommand("par",      function(tokens,parent){ return jstex.expandUntil(tokens,parent.createChild("p"),"par"); });
+jstex.newCommand("par",      function(tokens,parent){ 
+    if(tokens.length > 0) jstex.expandUntilCommand(tokens,parent.createChild("p"),["par"]);
+    return jstex.Status.READING;
+});
 jstex.newCommand("newline",  function(tokens,parent){ parent.createChild("br"); return true; });
 jstex.newCommand("linebreak",function(tokens,parent){ parent.createChild("br"); return true; });
-jstex.newCommand("hline"    ,function(tokens,parent){ parent.createChild("hr"); return true; });
+//jstex.newCommand("hline"    ,function(tokens,parent){ parent.createChild("hr"); return true; });
 
 //// extra symbols
 jstex.newCommand("glqq",     function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&bdquo;" )); return true});
@@ -819,40 +938,34 @@ jstex.newCommand("euro",     function(tokens,parent){parent.appendText(jstex.get
 jstex.newCommand("textndash",function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&ndash;" )); return true});
 jstex.newCommand("textmdash",function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&mdash;" )); return true});
 jstex.newCommand("texttimes",function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&times;" )); return true});
+jstex.newCommand("times",function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&times;" )); return true});
+jstex.newCommand("infty",function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&infin;" )); return true});
 jstex.newCommand("dots",     function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&#8230;" )); return true});
 jstex.newCommand("&",        function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&amp;"   )); return true});
 jstex.newCommand("%",        function(tokens,parent){parent.appendText(jstex.getHTMLAlias("%"   )); return true});
 
+//// greek
+jstex.newCommand("textmu",function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&mu;" )); return true});
+
+//// 'special' ignored commands
 jstex.ignoreCommand("relax");
 jstex.ignoreCommand("cr");
 
+//// ignored commands
 jstex.ignoreCommand("sloppy");
 jstex.ignoreCommand("makeatletter");
 jstex.ignoreCommand("makeatother");
 jstex.ignoreCommand("twocolumn");
 jstex.ignoreCommand("onecolumn");
 jstex.ignoreCommand("noindent");
-jstex.ignoreCommand("newlength");
-jstex.ignoreCommand("newcounter");
 jstex.ignoreCommand("geometry",1);
 jstex.ignoreCommand("appendix");
 jstex.ignoreCommand("clearpage");
 jstex.ignoreCommand("cleardoublepage");
 jstex.ignoreCommand("newpage");
+jstex.ignoreCommand("documentclass");
 		 
-//// some tricky things
-jstex.newCommand("url",function(tokens,parent){ 
-    var link = jstex.readNext(tokens);
-    parent.createChild("a",{"href":jstex.linkify(link)}).innerHTML=link;
-    return true;
-});
-
-jstex.newCommand("footnote",function(tokens,parent){ 
-    var content = jstex.readNext(tokens);
-    parent.createChild("span",{"title":content}).innerHTML="*";
-    return true;
-});
-
+//// document setup
 jstex.newCommand("author",function(tokens,parent){ 
     var cmd = jstex.newCommand("theauthor",function(toks,p){
 	jstex.expand(this.content,p);
@@ -896,6 +1009,25 @@ jstex.newCommand("@starttoc",function(tokens,parent){
     }
 });
 
+///// include commands
+
+jstex.newCommand("usepackage",function(tokens,parent){
+    jstex.buffer.innerHTML="";
+    var optArg = "";
+    if(tokens[0].optArg){
+	jstex.expandNext(tokens,jstex.buffer);
+	optArg = jstex.buffer.innerText;
+    }
+    jstex.buffer.innerHTML="";
+    jstex.expandNext(tokens,jstex.buffer);
+    var pkgname = jstex.buffer.innerText;
+    if(jstex.packages[pkgname]){
+	console.log("including package '"+pkgname+"' with options '"+optArg+"'");
+	return jstex.packages[pkgname].load(optArg);
+    } else {
+	throw "Error: cannot load package '"+pkgname+"' - if this is an external package not provided by tex.js, you need to call 'jstex.provide_package(name,path)' to pre-load it!";
+    }
+});
 
 jstex.newInclude("input",function(tokenstream,position){
     var fname = jstex.read(tokenstream[position+1]);
@@ -919,6 +1051,20 @@ jstex.newInclude("input",function(tokenstream,position){
 	};
     };
     jstex.addToFileDialogue(fname,"input","text",handler);
+});
+
+///// tricky things
+
+jstex.newCommand("url",function(tokens,parent){ 
+    var link = jstex.readNext(tokens);
+    parent.createChild("a",{"href":jstex.linkify(link)}).innerHTML=link;
+    return true;
+});
+
+jstex.newCommand("footnote",function(tokens,parent){ 
+    var content = jstex.readNext(tokens);
+    parent.createChild("span",{"title":content}).innerHTML="*";
+    return true;
 });
 
 jstex.newCommand("caption",function(tokens,target){return jstex.expandNext(tokens,target.createChild("div",{"style":{"text-align":"center"}}))});
@@ -945,55 +1091,6 @@ jstex.newCommand("ref",function(tokens,target){
 	"className":"jstex_refstyle",
     })
     return retval;
-});
-
-jstex.provide_package=function(name,path){
-    var script= document.createElement('script');
-    script.type= 'text/javascript';
-    script.async=false;
-    script.src=path;
-    document.head.appendChild(script);
-    console.log("providing package '"+name+"' from path '"+path+"'");
-    return true;
-}
-
-jstex.ignore_package=function(name){
-    jstex.packages[name] = { load:function(args){ return true; } };
-    return true;
-}
-
-jstex.parseKeyValArg=function(tokens){
-    var tok = tokens.shift();
-    var x = true;
-    var obj = {};
-    while(x){
-	x = jstex.readUntilSymbol(tok,",").replace(/,+$/, "");
-	var sep = x.indexOf("=");
-	var key = x.substr(0,sep).trim();
-	var val = x.substr(sep+1).trim();
-	if(key){
-	    obj[key]=val;
-	}
-    }
-    return obj;
-}
-
-jstex.newCommand("usepackage",function(tokens,parent){
-    jstex.buffer.innerHTML="";
-    var optArg = "";
-    if(tokens[0].optArg){
-	jstex.expandNext(tokens,jstex.buffer);
-	optArg = jstex.buffer.innerText;
-    }
-    jstex.buffer.innerHTML="";
-    jstex.expandNext(tokens,jstex.buffer);
-    var pkgname = jstex.buffer.innerText;
-    if(jstex.packages[pkgname]){
-	console.log("including package '"+pkgname+"' with options '"+optArg+"'");
-	return jstex.packages[pkgname].load(optArg);
-    } else {
-	throw "Error: cannot load package '"+pkgname+"' - if this is an external package not provided by tex.js, you need to call 'jstex.provide_package(name,path)' to pre-load it!";
-    }
 });
 
 //// sectioning
@@ -1048,13 +1145,12 @@ for(var i=0; i<fontsizes.length; i++){
     var fs = fontsizes[i];
     jstex.newCommand(fontsizes[i],function(tokens,parent){return jstex.expand(tokens,parent.createChild("span",{"style":{"font-size":jstex.getLength(fs)}}));});
 }
-//
-//
+
 //// boxes
 //jstex.newCommand("mbox",function(tokens){return "<span style='white-space:nowrap'>"+jstex.tex(tokens.shift())+"</span>"});
 //jstex.newCommand("fbox",function(tokens){return "<span style='white-space:nowrap; border:"+jstex.lengths.frameborder+"'>"+jstex.tex(tokens.shift())+"</span>"});
 //jstex.newCommand("parbox",function(tokens){return "<span'>"+jstex.tex(tokens.shift())+"</span>"});
-//
+
 //// spacing
 jstex.setLength("bigskip","1em");
 jstex.setLength("smallskip","0.5em");
@@ -1065,7 +1161,6 @@ jstex.newCommand("vskip",    function(tokens,parent){parent.createChild("div",{"
 
 
 //// non-trivial TeX primitives
-
 jstex.newCommand("begin",function(tokens,target){
     jstex.buffer.innerHTML="";
     jstex.expandNext(tokens,jstex.buffer);
@@ -1093,15 +1188,8 @@ jstex.newCommand("end",function(tokens,target){
     if(!env){
 	console.log("warning: encountered unknown end-environment '"+envname+"'");
     } else {
-//	console.log("leaving environment '"+envname+"'");
-	if(env.endTokens){
-	    var endtokens = jstex.cloneArray(env.endTokens);
-	    while(endtokens.length > 0){
-		var tok = endtokens[endtokens.length-1];
-		endtokens.pop();
-		if(tok) tokens.unshift(tok);
-	    }
-	}
+	console.log("leaving environment '"+envname+"'");
+	jstex.prependArray(env.endTokens,tokens);
     }
     jstex.leaveScope();
     return jstex.Status.ENDGROUP;
@@ -1144,12 +1232,27 @@ jstex.newCommand("newenvironment",function(tokens,parent){
     return true;
 });
 
+jstex.newCommand("newlength",function(tokens,parent){
+    jstex.newLength(jstex.readNext(tokens));
+    return true;
+});
+
+jstex.newCommand("newcounter",function(tokens,parent){
+    jstex.newCounter(jstex.readNext(tokens));
+    return true;
+});
+
 //// environments
 
 jstex.newEnvironment("center",function(tokens,target){return jstex.expand(tokens,target.createChild("div",{"style":{"text-align":"center"}}))});
-
 jstex.newEnvironment("small",function(tokens,target){return jstex.expand(tokens,target.createChild("div",{"style":{"font-size":"0.7em"}}))});
-
+jstex.newEnvironment("minipage",function(tokens,target){var width = jstex.readNext(tokens); return jstex.expand(tokens,target.createChild("div",{"style":{"width":width}}))});
+jstex.newEnvironment("quotation",function(tokens,target){return jstex.expand(tokens,target.createChild("div",{"style":{"margin-left":"1em"}}))});
+jstex.newEnvironment("multicols",function(tokens,target){jstex.expandNext(tokens,jstex.buffer); return jstex.expand(tokens,target.createChild("div"))});
+jstex.newEnvironment("itemize",function(tokens,target){
+    jstex.newCommand("item",  function(tokens,target){jstex.expandUntilCommand    (tokens,target.createChild("li",{}),["item"]); return jstex.Status.READING;});
+    return jstex.expand(tokens,target.createChild("ul"));
+});
 jstex.newCounter("figure");
 jstex.newEnvironment("figure",function(tokens,target){
     jstex.stepCounter("figure");
@@ -1161,74 +1264,17 @@ jstex.newEnvironment("table",function(tokens,target){
     return jstex.expand(tokens,target.createChild("div",{"style":{"text-align":"center"}}))
 });
 
-
-jstex.newEnvironment("minipage",function(tokens,target){return jstex.expand(tokens,target.createChild("div"))});
-
-jstex.newEnvironment("quotation",function(tokens,target){return jstex.expand(tokens,target.createChild("div",{"style":{"margin-left":"1em"}}))});
-
-jstex.newEnvironment("multicols",function(tokens,target){jstex.expandNext(tokens,jstex.buffer); return jstex.expand(tokens,target.createChild("div"))});
-
-jstex.newEnvironment("itemize",function(tokens,target){
-    jstex.newCommand("item",  function(tokens,target){return jstex.expandUntil    (tokens,target.createChild("li",{}),"item")});
-    return jstex.expand(tokens,target.createChild("ul"));
-});
-
-
-jstex.parseColumns = function(defs){
-    var retval = []
-    var idx = -1;
-    var borderwidth = "1px";
-    var bordercolor = "black";
-    var i = -1;
-    var nVerts = 0;
-    for(var i=0; i<defs.length; i++){
-	if(defs[i] == ' ') continue;
-	if(defs[i] == '|'){
-	    nVerts++;
-	    continue;
-	}
-	if(defs[i] == '>'){
-	    i++;
-	    retval[idx+1] = {prefixTokens:defs[i]};
-	    continue;
-	}
-	idx++;
-	if(!retval[idx])
-	    retval[idx] = new Object();
-	if(nVerts > 0){
-	    if(nVerts == 1)
-		retval[idx]["border-left"]=borderwidth + " solid " + bordercolor;
-	    if(nVerts > 1)
-		retval[idx]["border-left"]=borderwidth + " double " + bordercolor;
-	    nVerts = 0;
-	}
-	if(defs[i] == 'c'){
-	    retval[idx]["text-align"] = "center";
-	}
-	if(defs[i] == 'r'){
-	    retval[idx]["text-align"] = "right";
-	}
-	if(defs[i] == 'l'){
-	    retval[idx]["text-align"] = "left";
-	}
-	if(defs[i] == 'p'){
-	    retval[idx]["width"] = jstex.read(defs[i+1]);
-	    i++;
-	}
+jstex.printArray=function(arr,indent){
+    for(var i=0; i<arr.length; i++){
+	if(jstex.isArray(arr[i])) jstex.printArray(arr[i],indent+" ");
+	else if(jstex.isString(arr[i])) console.log(indent+arr[i]);
+	else  console.log(indent+arr[i].name);
     }
-    if(nVerts > 0){
-	if(nVerts == 1)
-	    retval[idx]["border-right"]=borderwidth + " solid " + bordercolor;
-	if(nVerts > 1)
-	    retval[idx]["border-right"]=borderwidth + " double " + bordercolor;
-	nVerts = 0;
-    }
-    return retval;
 }
 
 jstex.newEnvironment("tabular",function(tokens,target){
     var defs = tokens.shift();
-    var cols = jstex.parseColumns(defs);
+    var cols = jstex.parseColumnArg(defs);
     var colcnt = 0;
     var tab = target.createChild("table",{"style":{"border-collapse":"collapse"}});
     var status = jstex.Status.READING;
@@ -1237,23 +1283,34 @@ jstex.newEnvironment("tabular",function(tokens,target){
 	while(colcnt < cols.length){
 	    var cell = row.createChild("td",{"style":cols[colcnt]});
 	    jstex.prependArray(cols[colcnt].prefixTokens,tokens);
-	    status = jstex.expandUntilAnyOf(tokens,cell,["cr","newline","tabularnewline"]);
+	    status = jstex.expandUntilCommand(tokens,cell,["end","cr","newline","tabularnewline"]);
 	    colcnt++;
 	    var next = tokens.shift();
-	    if(!next) return jstex.Status.READING;
+	    if(!next){
+		return jstex.Status.READING;
+	    }
 	    if(next.name == "cr"){
 		continue;
+	    } else if(next.name == "end"){
+		// TODO: what happens if this is not the end that belongs to the table?
+		return next.expand(tokens,target);
 	    } else {
 		break;
 	    }
 	}
+	var nlines = 0;
+	while(tokens[0].name=="hline"){
+	    tokens.shift();
+	    nlines++;
+	}
+	if(nlines > 0){
+	    row.style["border-bottom"]="1px solid black";
+	}
 	colcnt = 0;
     }
-    return jstex.Status.READING;
-});
+    return jstex.Status.READING;});
 
-// math
-
+//// math commands
 jstex.newEnvironment("$",function(tokens,target){
     if(MathJax){
 	var id = jstex.makeid();
@@ -1279,6 +1336,31 @@ jstex.newCommand("ensuremath",function(tokens,target){
 
 });
 
+//// ignored packages that make no sense for jsTeX
+jstex.ignore_package("inputenc");
+jstex.ignore_package("fontenc");
+jstex.ignore_package("geometry");
+jstex.ignore_package("a4wide");
+jstex.ignore_package("multicol");
+
+//// ignored packages that are already inside the default implementation
+jstex.ignore_package("hyperref");
+jstex.ignore_package("array");
+jstex.ignore_package("color");
+jstex.ignore_package("xcolor");
+
+//// special font packages that will probably never be implemented anyway
+jstex.ignore_package("trajan");
+jstex.ignore_package("vicent");
+jstex.ignore_package("sqrcaps");
+
+//// packages that have not yet been implemented
+jstex.ignore_package("graphicx");
+jstex.ignore_package("microtype");
+jstex.ignore_package("textcomp");
+jstex.ignore_package("caption");
+jstex.ignore_package("titlesec");
+
 /// package emulation
 
 jstex.packages.verse = { load:function(args){
@@ -1292,26 +1374,7 @@ jstex.packages.babel = { load:function(args){
     return true;
 }};
 
-jstex.ignore_package("graphicx");
-jstex.ignore_package("trajan");
-jstex.ignore_package("microtype");
-jstex.ignore_package("inputenc");
-jstex.ignore_package("fontenc");
-jstex.ignore_package("verse")
-jstex.ignore_package("geometry");
-jstex.ignore_package("hyperref");
-jstex.ignore_package("vicent");
-jstex.ignore_package("sqrcaps");
-jstex.ignore_package("multicol");
-jstex.ignore_package("color");
-jstex.ignore_package("xcolor");
-jstex.ignore_package("array");
-jstex.ignore_package("caption");
-jstex.ignore_package("titlesec");
-jstex.ignore_package("array");
-jstex.ignore_package("a4wide");
-
-
+//// css styles for various elements
 var style = document.createElement('style');
 style.type = 'text/css';
 style.innerHTML+= '.jstex_toctitle { font-weight:bold; font-size:1.17em; margin-bottom:1em; }';
@@ -1321,5 +1384,4 @@ style.innerHTML+= '.jstex_tocstyle_subsection    { display:block; text-decoratio
 style.innerHTML+= '.jstex_tocstyle_subsubsection { display:block; text-decoration:none; color: black; font-style:italic; margin-left:2em;}';
 style.innerHTML+= '.jstex_hovercontainer         { position:fixed; text-align:center; display:block; width:100%; height:100%; top:0px; left:0px; z-index:10 }';
 style.innerHTML+= '.jstex_hover                  { position:absolute; background:white; text-align:center; display:block; border:10px solid #C8C8C8; -moz-border-radius: 15px; border-radius: 15px; opacity: 0.9; z-index: 10; padding-bottom:10px; padding-left:10px; padding-right:10px; width:80%; top:10%; left:10%; max-height:80%; }';
-
 document.head.appendChild(style);
