@@ -607,7 +607,6 @@ var jstex = {
 	    lasttok = tokens[0];
 	    lastresult = result;
 	}
-	console.log("number:",buffer.textContent);
 	return result;
     },
     readNext:function(tokens){
@@ -1191,6 +1190,20 @@ for(var i=0; i<fontsizes.length; i++){
     jstex.newCommand(fontsizes[i],function(tokens,parent){return jstex.expand(tokens,parent.createChild("span",{"style":{"font-size":jstex.getLength(fs)}}));});
 }
 
+jstex.newCommand("fontsize",function(tokens,parent){
+    var size = jstex.readLength(tokens.shift());
+    jstex.setLength("_fontsize",size);
+    var space = jstex.readLength(tokens.shift());
+    jstex.setLength("_linespace",space);
+    console.log(size,space);
+    return true;
+});
+
+jstex.newCommand("selectfont",function(tokens,parent){
+    return jstex.expand    (tokens,parent.createChild("span",{"style":{"font-size":jstex.getLength("fontsize")}}));
+});
+
+
 //// boxes
 //jstex.newCommand("mbox",function(tokens){return "<span style='white-space:nowrap'>"+jstex.tex(tokens.shift())+"</span>"});
 //jstex.newCommand("fbox",function(tokens){return "<span style='white-space:nowrap; border:"+jstex.lengths.frameborder+"'>"+jstex.tex(tokens.shift())+"</span>"});
@@ -1411,6 +1424,16 @@ jstex.ignore_package("titlesec");
 
 jstex.packages.verse = { load:function(args){
     jstex.newEnvironment("verse",function(tokens,target){return jstex.expand(tokens,target.createChild("div",{"title":"verse","style":{"margin-top":"10px","margin-bottom":"10px","margin-left":"30px"}}))});
+    return true;
+}};
+
+jstex.packages.calligra = { load:function(args){
+    jstex.newCommand("calligra",  function(tokens,target){return jstex.expand    (tokens,target.createChild("span",{"style":{"font-family":"cursive"       }}))});
+    return true;
+}};
+
+jstex.packages.pgothic = { load:function(args){
+    jstex.newCommand("pgothfamily",  function(tokens,target){return jstex.expand    (tokens,target.createChild("span",{"style":{"font-family":"Fantasy"       }}))});
     return true;
 }};
 
