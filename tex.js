@@ -250,6 +250,12 @@ var jstex = {
 	var cmd = jstex.newCommand(name,expand);
 	cmd.argc = argc;
     },
+    setArgument:function(i,arg){
+	jstex.scopes[0].args[i] = arg;
+    },
+    getArgument:function(i){
+	return jstex.scopes[0].args[i];
+    },
     /////////////////////////////////////////////////////////////
     // include commands are special because javascript does not allow
     // local file access
@@ -513,7 +519,7 @@ var jstex = {
 		    respectnewlines=0;
 		    continue;
 		}
-		var endidx  = jstex.findNextOf(input,"\\{}[]()-\t \n\r%1234567890.,#/",idx+2);
+		var endidx  = jstex.findNextOf(input,"\\{}[]()-\t \n\r%1234567890.,#/~",idx+2);
 		if(endidx < 0) endidx = input.length;
 		var cmdname = input.substr(idx+1,endidx-idx-1);
 		var cmd     = jstex.getCommand(cmdname);
@@ -747,8 +753,7 @@ var jstex = {
 	    }
 	    return retval;
 	} else if(token.name == "#localVariable"){
-	    // todo: implement this
-	    return jstex.Status.READING;
+	    return jstex.expand(jstex.cloneArray(jstex.getArgument(token.index)));
 	} else {
 	    console.log("ERROR: cannot process token of type '"+typeof token+"':",token);
 	    return jstex.Status.ERROR;
@@ -935,7 +940,10 @@ jstex.newCommand("par",      function(tokens,parent){
 });
 jstex.newCommand("newline",  function(tokens,parent){ parent.createChild("br"); return true; });
 jstex.newCommand("linebreak",function(tokens,parent){ parent.createChild("br"); return true; });
-//jstex.newCommand("hline"    ,function(tokens,parent){ parent.createChild("hr"); return true; });
+jstex.newCommand("rule"    ,function(tokens,parent){ 
+    parent.createChild("span",{"style":{"content":" ","display":"inline-block","background-color":"black","width":jstex.readLength(tokens.shift()),"height":jstex.readLength(tokens.shift())}}); 
+    return true;
+});
 
 //// extra symbols
 jstex.newCommand("glqq",     function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&bdquo;" )); return true});
@@ -949,6 +957,11 @@ jstex.newCommand("infty",function(tokens,parent){parent.appendText(jstex.getHTML
 jstex.newCommand("dots",     function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&#8230;" )); return true});
 jstex.newCommand("&",        function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&amp;"   )); return true});
 jstex.newCommand("%",        function(tokens,parent){parent.appendText(jstex.getHTMLAlias("%"   )); return true});
+jstex.newCommand("_",        function(tokens,parent){parent.appendText("_"); return true});
+jstex.newCommand("heartsuit",     function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&hearts;"  )); return true});
+jstex.newCommand("diamondsuit",     function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&diams;"  )); return true});
+jstex.newCommand("clubsuit",     function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&clubs;"  )); return true});
+jstex.newCommand("spadesuit",     function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&spades;"  )); return true});
 
 //// greek
 jstex.newCommand("textmu",function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&mu;" )); return true});
@@ -1164,6 +1177,7 @@ jstex.newCommand("paragraph",    function(tokens,target){return jstex.expandNext
 //// font choices
 jstex.newCommand("textit",    function(tokens,target){return jstex.expandNext(tokens,target.createChild("span",{"style":{"font-style":"italic"}}))});
 jstex.newCommand("textbf",    function(tokens,target){return jstex.expandNext(tokens,target.createChild("span",{"style":{"font-weight":"bold"}}))});
+jstex.newCommand("texttt",    function(tokens,target){return jstex.expandNext(tokens,target.createChild("span",{"style":{"font-family":"monospace"}}))});
 jstex.newCommand("textsc",    function(tokens,target){return jstex.expandNext(tokens,target.createChild("span",{"style":{"font-variant":"small-caps"}}))});
 jstex.newCommand("itshape",   function(tokens,target){return jstex.expand    (tokens,target.createChild("span",{"style":{"font-style":"italic"      }}))});
 jstex.newCommand("twistshape",function(tokens,target){return jstex.expand    (tokens,target.createChild("span",{"style":{"font-style":"italic"      }}))});
@@ -1200,7 +1214,8 @@ jstex.newCommand("fontsize",function(tokens,parent){
 });
 
 jstex.newCommand("selectfont",function(tokens,parent){
-    return jstex.expand    (tokens,parent.createChild("span",{"style":{"font-size":jstex.getLength("fontsize")}}));
+    var size = jstex.getLength("_fontsize");
+    return jstex.expand    (tokens,parent.createChild("span",{"style":{"font-size":size}}));
 });
 
 
@@ -1214,7 +1229,7 @@ jstex.setLength("bigskip","1em");
 jstex.setLength("smallskip","0.5em");
 jstex.newCommand("bigskip",  function(tokens,parent){parent.createChild("div",{"style":{"margin":jstex.getLength("bigskip")  }}); return true;});
 jstex.newCommand("smallskip",function(tokens,parent){parent.createChild("div",{"style":{"margin":jstex.getLength("smallskip")}}); return true;});
-jstex.newCommand("vspace",   function(tokens,parent){parent.createChild("div",{"style":{"margin":jstex.readLength(tokens)}}); return true});
+jstex.newCommand("vspace",   function(tokens,parent){var space = jstex.readLength(tokens.shift()); parent.createChild("br",{"style":{"content":" ","display":"block","margin":space}});return true;});
 jstex.newCommand("vskip",    function(tokens,parent){parent.createChild("div",{"style":{"margin":jstex.readLength(tokens)}}); return true});
 
 
@@ -1235,7 +1250,7 @@ jstex.newCommand("begin",function(tokens,target){
 
     }
     jstex.prependArray(env.beginTokens,tokens);
-//    console.log("entering environment '"+envname+"'");
+    console.log("entering environment '"+envname+"'");
     env.expand(tokens,target);
     return jstex.Status.READING;
 });
@@ -1284,11 +1299,42 @@ jstex.newCommand("newenvironment",function(tokens,parent){
     }
     env.expand=function(tokens,target){
 	var child = target.createChild("span",{"title":this.name});
+	console.log("expanding environment '"+this.name+"'");
 	return jstex.expand(tokens,child);
     }
     jstex.addEnvironment(env);
     return true;
 });
+
+
+jstex.newCommand("providecommand",function(tokens,parent){
+    var next = tokens.shift();
+    var cmd = undefined;
+    if(jstex.isArray(next)) cmd = next.shift();
+    else cmd = next;
+    var cmdtoks = tokens.shift();
+    var cmdargc = 0;
+    if(tokens[0].optArg){
+	cmd.nArgs = parseInt(jstex.readNext(tokens));
+    }
+    if(cmd.isUndefined){
+	cmd.isUndefined = false;
+	cmd.expand = function(tkns,prnt){
+	    for(var i=0; i<this.nArgs; i++){
+		jstex.setArgument(i,tkns.shift());
+	    }
+	    jstex.prependArray(this.tokens,tkns);
+	    return jstex.expand(tkns,prnt);
+	};
+	cmd.tokens = cmdtoks;
+        cmd.nArgs = cmdargc;
+    }
+    console.log("providing command",cmd);
+    return true;
+});
+jstex.newCommand("newcommand",jstex.getCommand("providecommand").expand);
+jstex.newCommand("def",jstex.getCommand("providecommand").expand);
+jstex.newCommand("renewcommand",jstex.getCommand("providecommand").expand);
 
 jstex.newCommand("newlength",function(tokens,parent){
     jstex.newLength(jstex.readNext(tokens));
@@ -1436,6 +1482,110 @@ jstex.packages.pgothic = { load:function(args){
     jstex.newCommand("pgothfamily",  function(tokens,target){return jstex.expand    (tokens,target.createChild("span",{"style":{"font-family":"Fantasy"       }}))});
     return true;
 }};
+
+jstex.packages.ccicons = { load:function(args){
+    jstex.newCommand("ccLogo",           function(tokens,target){target.createChild("img",{"style":{"height":"1em","width":"1em"},"src":"http://mirrors.creativecommons.org/presskit/icons/cc.svg","alt":"CC"});             return true;});
+    jstex.newCommand("ccAttribution",    function(tokens,target){target.createChild("img",{"style":{"height":"1em","width":"1em"},"src":"http://mirrors.creativecommons.org/presskit/icons/by.svg","alt":"BY"});             return true;});
+    jstex.newCommand("ccShareAlike",     function(tokens,target){target.createChild("img",{"style":{"height":"1em","width":"1em"},"src":"http://mirrors.creativecommons.org/presskit/icons/sa.svg","alt":"SA"});             return true;});
+    jstex.newCommand("ccNoDerivatives",  function(tokens,target){target.createChild("img",{"style":{"height":"1em","width":"1em"},"src":"http://mirrors.creativecommons.org/presskit/icons/nd.svg","alt":"ND"});             return true;});
+    jstex.newCommand("ccNonCommercial",  function(tokens,target){target.createChild("img",{"style":{"height":"1em","width":"1em"},"src":"http://mirrors.creativecommons.org/presskit/icons/ncu.svg","alt":"NC"});            return true;});
+    jstex.newCommand("ccNonCommercialEU",function(tokens,target){target.createChild("img",{"style":{"height":"1em","width":"1em"},"src":"http://mirrors.creativecommons.org/presskit/icons/nc-eu.svg","alt":"NCEU"});        return true;});
+    jstex.newCommand("ccNonCommercialJP",function(tokens,target){target.createChild("img",{"style":{"height":"1em","width":"1em"},"src":"http://mirrors.creativecommons.org/presskit/icons/by-jp.svg","alt":"NCJP"});        return true;}); 
+    jstex.newCommand("ccZero",           function(tokens,target){target.createChild("img",{"style":{"height":"1em","width":"1em"},"src":"http://mirrors.creativecommons.org/presskit/icons/zero.svg","alt":"0"});            return true;});
+    jstex.newCommand("ccPublicDomain",   function(tokens,target){target.createChild("img",{"style":{"height":"1em","width":"1em"},"src":"http://mirrors.creativecommons.org/presskit/icons/publicdomain.svg","alt":"PD"});   return true;});
+    jstex.newCommand("ccSampling",       function(tokens,target){target.createChild("img",{"style":{"height":"1em","width":"1em"},"src":"http://mirrors.creativecommons.org/presskit/icons/sampling.svg","alt":"SAMPLING"}); return true;});
+    jstex.newCommand("ccShare",          function(tokens,target){target.createChild("img",{"style":{"height":"1em","width":"1em"},"src":"http://mirrors.creativecommons.org/presskit/icons/share.svg","alt":"SHARE"});       return true;});
+    jstex.newCommand("ccRemix",          function(tokens,target){target.createChild("img",{"style":{"height":"1em","width":"1em"},"src":"http://mirrors.creativecommons.org/presskit/icons/remix.svg","alt":"REMIX"});       return true;}); 
+    jstex.newCommand("ccCopy",           function(tokens,target){target.createChild("img",{"style":{"height":"1em","width":"1em"},"src":"http://mirrors.creativecommons.org/presskit/icons/copy.svg","alt":"COPY"});         return true;}); 
+    jstex.newCommand("ccby",function(tokens,target){
+	jstex.getCommand("ccLogo").expand(tokens,target);
+	jstex.getCommand("ccAttribution").expand(tokens,target); 
+	return true;
+    });
+    jstex.newCommand("ccbysa",function(tokens,target){
+	jstex.getCommand("ccLogo").expand(tokens,target);
+	jstex.getCommand("ccAttribution").expand(tokens,target); 
+	jstex.getCommand("ccShareAlike").expand(tokens,target); 
+	return true;
+    });
+    jstex.newCommand("ccbynd",function(tokens,target){
+	jstex.getCommand("ccLogo").expand(tokens,target);
+	jstex.getCommand("ccAttribution").expand(tokens,target);
+	jstex.getCommand("ccNoDerivatives").expand(tokens,target);  
+	return true;
+    });
+    jstex.newCommand("ccbync",function(tokens,target){
+	jstex.getCommand("ccLogo").expand(tokens,target);
+	jstex.getCommand("ccAttribution").expand(tokens,target); 
+	jstex.getCommand("ccNonCommercial").expand(tokens,target);  
+	return true;
+    });
+    jstex.newCommand("ccbynceu",function(tokens,target){
+	jstex.getCommand("ccLogo").expand(tokens,target);
+	jstex.getCommand("ccAttribution").expand(tokens,target); 
+	jstex.getCommand("ccNonCommercialEU").expand(tokens,target);  
+	return true;
+    });
+    jstex.newCommand("ccbyncjp",function(tokens,target){
+	jstex.getCommand("ccLogo").expand(tokens,target);
+	jstex.getCommand("ccAttribution").expand(tokens,target); 
+	jstex.getCommand("ccNonCommercialJP").expand(tokens,target);  
+	return true;
+    });
+    jstex.newCommand("ccbyncsa",function(tokens,target){
+	jstex.getCommand("ccLogo").expand(tokens,target);
+	jstex.getCommand("ccAttribution").expand(tokens,target); 
+	jstex.getCommand("ccShareAlike").expand(tokens,target); 
+	jstex.getCommand("ccNonCommercial").expand(tokens,target);  
+	return true;
+    });
+    jstex.newCommand("ccbyncsaeu",function(tokens,target){
+	jstex.getCommand("ccLogo").expand(tokens,target);
+	jstex.getCommand("ccAttribution").expand(tokens,target);
+	jstex.getCommand("ccShareAlike").expand(tokens,target);  
+	jstex.getCommand("ccNonCommercialEU").expand(tokens,target);  
+	return true;
+    });
+    jstex.newCommand("ccbyncsajp",function(tokens,target){
+	jstex.getCommand("ccLogo").expand(tokens,target);
+	jstex.getCommand("ccAttribution").expand(tokens,target); 
+	jstex.getCommand("ccShareAlike").expand(tokens,target); 
+	jstex.getCommand("ccNonCommercialJP").expand(tokens,target);  
+	return true;
+    });
+    jstex.newCommand("ccbyncnd",function(tokens,target){
+	jstex.getCommand("ccLogo").expand(tokens,target);
+	jstex.getCommand("ccAttribution").expand(tokens,target); 
+	jstex.getCommand("ccNonCommercial").expand(tokens,target);  
+	jstex.getCommand("ccNoDerivatives").expand(tokens,target); 
+	return true;
+    });
+    jstex.newCommand("ccbyncndeu",function(tokens,target){
+	jstex.getCommand("ccLogo").expand(tokens,target);
+	jstex.getCommand("ccAttribution").expand(tokens,target); 
+	jstex.getCommand("ccNonCommercialEU").expand(tokens,target);  
+	jstex.getCommand("ccNoDerivatives").expand(tokens,target); 
+	return true;
+    });
+    jstex.newCommand("ccbyncndjp",function(tokens,target){
+	jstex.getCommand("ccLogo").expand(tokens,target);
+	jstex.getCommand("ccAttribution").expand(tokens,target); 
+	jstex.getCommand("ccNonCommercialJP").expand(tokens,target);  
+	jstex.getCommand("ccNoDerivatives").expand(tokens,target); 
+	return true;
+    });
+    jstex.newCommand("cczero",function(tokens,target){
+	jstex.getCommand("ccLogo").expand(tokens,target);
+	jstex.getCommand("ccZero").expand(tokens,target); 
+	return true;
+    });
+    jstex.newCommand("ccpd",function(tokens,target){
+	jstex.getCommand("ccLogo").expand(tokens,target);
+	jstex.getCommand("ccPublicDomain").expand(tokens,target); 
+	return true;
+    });
+}};
+
 
 jstex.packages.babel = { load:function(args){
     var toctitle = jstex.resources.tableofcontents_title;
