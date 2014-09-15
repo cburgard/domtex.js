@@ -94,10 +94,14 @@ var jstex = {
 	    }
 	}
     },
-    copyObject:function(obj){
-	retval = {};
+    copyObject:function(obj,depth){
+	var retval = {};
 	for(key in obj){
-	    retval[key] = obj[key];
+	    if(depth > 0){
+		retval[key] = jstex.copyObject(obj[key],depth-1);
+	    } else {
+		retval[key] = obj[key];
+	    }
 	}
 	return retval;
     },
@@ -150,6 +154,7 @@ var jstex = {
 	    "~" : " "
 	}
     } ],
+    counterswithin : [],
     createDummy:function(title){
 	var dummy = document.createElement("span");
 	dummy.title=title;
@@ -179,20 +184,20 @@ var jstex = {
     enterScope:function(){
 	curscope = jstex.scopes[0];
 	scope = {
-	    commands :     jstex.copyObject(curscope.commands),
-	    environments : jstex.copyObject(curscope.environments),
-	    counters :     jstex.copyObject(curscope.counters),
-	    lengths :      jstex.copyObject(curscope.lengths),
+	    commands :     jstex.copyObject(curscope.commands,1),
+	    environments : jstex.copyObject(curscope.environments,1),
+	    counters :     jstex.copyObject(curscope.counters,1),
+	    lengths :      jstex.copyObject(curscope.lengths,1),
 	    lastRef:       curscope.lastRef,
 	    tags :         curscope.tags,
 	    aliases :      curscope.aliases
 	}
 	jstex.scopes.unshift(scope);
-//	console.log("entering scope "+jstex.scopes.length);
+	console.log("entering scope "+jstex.scopes.length);
     },
     leaveScope:function(){
 	if(jstex.scopes.length > 0){
-//	    console.log("leaving scope "+jstex.scopes.length);
+	    console.log("leaving scope "+jstex.scopes.length);
 	    jstex.scopes.shift()
 	} else {
 	    console.log("ERROR in leaveScope: stack is empty!")
@@ -219,10 +224,10 @@ var jstex = {
     getCommand:function(name){
 	return jstex.scopes[0].commands[name];
     },
-    newCommand : function(name,expand){
+    newCommand : function(name,expand,force){
 	var cmd = jstex.getCommand(name);
 	if(cmd){
-	    if(cmd.isUndefined){
+	    if(force || cmd.isUndefined){
 		cmd.isUndefined = false;
 		cmd.expand = expand;
 		return;
@@ -392,9 +397,27 @@ var jstex = {
     },
     newCounter:function(name){
 	jstex.scopes[0].counters[name] = 0;
+	jstex.counterswithin[name] = {};
     },
     stepCounter:function(name){
 	jstex.scopes[0].counters[name] = jstex.scopes[0].counters[name] + 1;
+	for(key in jstex.counterswithin[name]){
+	    if(jstex.counterswithin[name][key]){
+		jstex.resetCounter(key);
+	    }
+	}
+    },
+    setCounterWithin:function(name,within){
+	jstex.counterswithin[name][within] = true;
+    },
+    setCounterWithout:function(name,without){
+	jstex.counterswithin[name][without] = false;
+    },
+    resetCounter:function(name){
+	jstex.scopes[0].counters[name] = 0;
+    },
+    setCounter:function(name,val){
+	jstex.scopes[0].counters[name] = val;
     },
     /////////////////////////////////////////////////////////////
     // lengths hold numbers and units
@@ -647,7 +670,7 @@ var jstex = {
 	jstex.extendDOM(buffer);
 	while(tokens.length > 0){
 	    var tkn = tokens.shift();
-	    if(tkn.name != "end"){
+	    if(tkn.name != "end" || tkn.name == "endgroup"){
 		jstex.expand(tkn,buffer);
 		continue;
 	    }
@@ -672,10 +695,14 @@ var jstex = {
 		for(var i=0; i<stoptoks.length; i++){
 		    if(tokens[0] == stoptoks[i])
 			return newtoks;
+		    if(tokens[0].name && stoptoks[i].name && tokens[0].name == stoptoks[i].name)
+			return newtoks;
 		}
 	    }
 	    if(tokens[0].name == "end")   envs--;
+	    if(tokens[0].name == "endgroup")   envs--;
 	    if(tokens[0].name == "begin") envs++;
+	    if(tokens[0].name == "begingroup") envs++;
 	    newtoks.push(tokens.shift());
 	}
 	return newtoks;
@@ -714,6 +741,7 @@ var jstex = {
     expandUntilCommand:function(tokens,target,cmdnames){
        if(jstex.isArray(tokens)){
 	   var toks = jstex.shiftTokensUntilCommand(tokens,cmdnames);
+//	   console.log("found "+toks.length + " tokens until "+cmdnames[0]+" and others");
 	   var status = jstex.expand(toks,target);
 	   if(tokens.length > 0){
 	       return jstex.Status.READING;
@@ -742,21 +770,32 @@ var jstex = {
 	} else if(jstex.isString(token)){
 	    target.appendText(token);
 	    return jstex.Status.READING;
-	} else if(token.isUndefined){
-	    console.log("undefined control sequence: " +token.name);
-	    target.appendChild(jstex.createDummy(token.name));
-	    return jstex.Status.READING;
-	} else if(token.expand !== undefined){
-	    var retval = token.expand(tokens,target);
-	    if(retval == jstex.Status.ERROR){
-		console.log("the command '"+token.name+"' reported an error during expansion!")
-	    }
-	    return retval;
-	} else if(token.name == "#localVariable"){
-	    return jstex.expand(jstex.cloneArray(jstex.getArgument(token.index)));
-	} else {
+	} 
+	if(!token.name){
 	    console.log("ERROR: cannot process token of type '"+typeof token+"':",token);
 	    return jstex.Status.ERROR;
+	}
+	var cmd = jstex.getCommand(token.name);
+	if(!cmd){
+	    console.log("missing definition of control sequence "+token.name+" in scope "+jstex.scopes.length);
+	    console.log(jstex.scopes[0]);
+	    return true;
+	}
+	if(cmd.isUndefined){
+	    console.log("undefined control sequence: " +cmd.name);
+	    target.appendChild(jstex.createDummy(cmd.name));
+	    return jstex.Status.READING;
+	} else if(cmd.expand !== undefined){
+	    var retval = cmd.expand(tokens,target);
+	    if(retval == jstex.Status.ERROR){
+		console.log("the command '"+cmd.name+"' reported an error during expansion!")
+	    }
+	    return retval;
+	} else if(cmd.name == "#localVariable"){
+	    return jstex.expand(jstex.cloneArray(jstex.getArgument(cmd.index)));
+	} else {
+	    console.log("ERROR: command '"+token.name+"' is missing an expand method!");
+	    return false;
 	}
     },
     expand:function(token,target){
@@ -1155,18 +1194,34 @@ var sections = ["section","subsection","subsubsection"];
 for(var i=0; i<sections.length; i++){
     var tag = jstex.scopes[0].tags[sections[i]];
     jstex.newCounter(sections[i]);
-    jstex.newCommand(sections[i],function(tokens,parent){
+    var seccmd = jstex.newCommand(sections[i],function(tokens,parent){
 	var id = jstex.makeid();
 	var header = parent.createChild(tag,{"id":id});
 	jstex.stepCounter(this.name);
-	var thesec = jstex.getCounter(this.name);
+	var thesec = this.getSecNum();
 	jstex.setLastRef(header,thesec);
-	header.innerHTML=thesec + " ";
+	if(this.depth < jstex.getCounter("secnumdepth")){
+	    header.innerHTML=thesec + " ";
+	} else {
+	    header.innerHTML = "";
+	}
 	var retval = jstex.expandNext(tokens,header);
 	var tocentry = jstex.resources.tableofcontents.createChild("a",{"className":"jstex_tocstyle_"+this.name,"href":"#"+id});
 	tocentry.innerHTML=header.innerHTML;
 	return retval;
     });
+    seccmd.depth = i;
+    if(i>0){
+	jstex.setCounterWithin(sections[i-1],sections[i]);
+	seccmd.parentSectionName = sections[i-1];
+	seccmd.getSecNum = function(){
+	    return jstex.getCommand(this.parentSectionName).getSecNum()+"."+jstex.getCounter(this.name);
+	}
+    } else {
+	seccmd.getSecNum = function(){
+	    return jstex.getCounter(this.name);
+	}
+    }
     jstex.newCommand(sections[i]+"*",function(tokens,parent){
 	var retval = jstex.expandNext(tokens,parent.createChild(tag));
 	return retval;
@@ -1182,6 +1237,7 @@ jstex.newCommand("textsc",    function(tokens,target){return jstex.expandNext(to
 jstex.newCommand("itshape",   function(tokens,target){return jstex.expand    (tokens,target.createChild("span",{"style":{"font-style":"italic"      }}))});
 jstex.newCommand("twistshape",function(tokens,target){return jstex.expand    (tokens,target.createChild("span",{"style":{"font-style":"italic"      }}))});
 jstex.newCommand("bfseries",  function(tokens,target){return jstex.expand    (tokens,target.createChild("span",{"style":{"font-weight":"bold"       }}))});
+jstex.newCommand("sffamily",  function(tokens,target){return jstex.expand    (tokens,target.createChild("span",{"style":{"font-family":"sans-serif"       }}))});
 jstex.newCommand("sqrcfamily",function(tokens,target){return jstex.expand    (tokens,target.createChild("span",{"style":{"font-variant":"small-caps"}}))});
 
 jstex.newCommand("centering",  function(tokens,target){return jstex.expand    (tokens,target.createChild("div",{"style":{"text-align":"center"       }}))});
@@ -1218,6 +1274,19 @@ jstex.newCommand("selectfont",function(tokens,parent){
     return jstex.expand    (tokens,parent.createChild("span",{"style":{"font-size":size}}));
 });
 
+jstex.newCommand("setcounter",function(tokens,parent){
+    var name = jstex.readNext(tokens);
+    var val = parseInt(jstex.readNext(tokens));
+    jstex.setCounter(name,val);
+    return true;
+});
+
+jstex.newCommand("setlength",function(tokens,parent){
+    var name = jstex.readNext(tokens);
+    var val = jstex.readNext(tokens);
+    jstex.setLength(name,val);
+    return true;
+});
 
 //// boxes
 //jstex.newCommand("mbox",function(tokens){return "<span style='white-space:nowrap'>"+jstex.tex(tokens.shift())+"</span>"});
@@ -1264,6 +1333,24 @@ jstex.newCommand("end",function(tokens,target){
 	console.log("leaving environment '"+envname+"'");
 	jstex.prependArray(env.endTokens,tokens);
     }
+    jstex.leaveScope();
+    return jstex.Status.ENDGROUP;
+});
+
+jstex.newCommand("begingroup",function(tokens,target){
+    jstex.buffer.innerHTML="";
+    console.log("begingroup");
+    jstex.enterScope();
+    // it is important that the return-value is not forwarded
+    // otherwise, the expander would return the ENDSTREAM/ENDGROUP
+    // message all the way up to the body
+    jstex.expand(tokens,target.createChild("span"));
+    return jstex.Status.READING;
+});
+
+jstex.newCommand("endgroup",function(tokens,target){
+    console.log("endgroup");
+    jstex.printArray(tokens);
     jstex.leaveScope();
     return jstex.Status.ENDGROUP;
 });
@@ -1349,13 +1436,26 @@ jstex.newCommand("newcounter",function(tokens,parent){
 //// environments
 
 jstex.newEnvironment("center",function(tokens,target){return jstex.expand(tokens,target.createChild("div",{"style":{"text-align":"center"}}))});
+jstex.newEnvironment("abstract",function(tokens,target){return jstex.expand(tokens,target.createChild("div",{"style":{"margin":"2cm","text-align":"justify"}}))});
 jstex.newEnvironment("small",function(tokens,target){return jstex.expand(tokens,target.createChild("div",{"style":{"font-size":"0.7em"}}))});
 jstex.newEnvironment("minipage",function(tokens,target){var width = jstex.readNext(tokens); return jstex.expand(tokens,target.createChild("div",{"style":{"width":width}}))});
 jstex.newEnvironment("quotation",function(tokens,target){return jstex.expand(tokens,target.createChild("div",{"style":{"margin-left":"1em"}}))});
 jstex.newEnvironment("multicols",function(tokens,target){jstex.expandNext(tokens,jstex.buffer); return jstex.expand(tokens,target.createChild("div"))});
+jstex.newEnvironment("multicols*",function(tokens,target){jstex.expandNext(tokens,jstex.buffer); return jstex.expand(tokens,target.createChild("div"))});
 jstex.newEnvironment("itemize",function(tokens,target){
-    jstex.newCommand("item",  function(tokens,target){jstex.expandUntilCommand    (tokens,target.createChild("li",{}),["item"]); return jstex.Status.READING;});
+    jstex.newCommand("item",  function(tokens,target){jstex.expandUntilCommand    (tokens,target.createChild("li",{}),["item"]); return jstex.Status.READING;},true);
     return jstex.expand(tokens,target.createChild("ul"));
+});
+jstex.newEnvironment("description",function(tokens,target){
+    jstex.newCommand("item",  function(tokens,target){
+	var item = target.createChild("div",{});
+	if(tokens[0].optArg){
+	    jstex.expandNext(tokens,item.createChild("span",{"style":{"font-weight":"bold"}}));
+	}
+	jstex.expandUntilCommand    (tokens,item.createChild("span",{}),["item"]); 
+	return jstex.Status.READING;
+    },true);
+    return jstex.expand(tokens,target.createChild("div"));
 });
 jstex.newCounter("figure");
 jstex.newEnvironment("figure",function(tokens,target){
@@ -1447,6 +1547,7 @@ jstex.ignore_package("fontenc");
 jstex.ignore_package("geometry");
 jstex.ignore_package("a4wide");
 jstex.ignore_package("multicol");
+jstex.ignore_package("flafter");
 
 //// ignored packages that are already inside the default implementation
 jstex.ignore_package("hyperref");
@@ -1465,6 +1566,9 @@ jstex.ignore_package("microtype");
 jstex.ignore_package("textcomp");
 jstex.ignore_package("caption");
 jstex.ignore_package("titlesec");
+jstex.ignore_package("enumitem");
+jstex.ignore_package("subcaption");
+jstex.ignore_package("longtable");
 
 /// package emulation
 
@@ -1604,3 +1708,13 @@ style.innerHTML+= '.jstex_tocstyle_subsubsection { display:block; text-decoratio
 style.innerHTML+= '.jstex_hovercontainer         { position:fixed; text-align:center; display:block; width:100%; height:100%; top:0px; left:0px; z-index:10 }';
 style.innerHTML+= '.jstex_hover                  { position:absolute; background:white; text-align:center; display:block; border:10px solid #C8C8C8; -moz-border-radius: 15px; border-radius: 15px; opacity: 0.9; z-index: 10; padding-bottom:10px; padding-left:10px; padding-right:10px; width:80%; top:10%; left:10%; max-height:80%; overflow:scroll; }';
 document.head.appendChild(style);
+
+try {
+    if(MathJax) console.log("using MathJax");
+} catch(ReferenceError){
+    MathJax = false;
+    console.log("not using MathJax");
+}
+
+jstex.newCounter("secnumdepth");
+jstex.setCounter("secnumdepth",3);
