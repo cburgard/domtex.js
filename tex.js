@@ -144,12 +144,12 @@ var jstex = {
 	lengths : {
 	    frameborder : "1px"
 	},
-	lastRef : undefined,
 	tags : {
 	    section : "h1",
 	    subsection : "h2",
 	    subsubsection : "h3"
 	},
+	lastRef : undefined,
 	aliases : {
 	    "~" : " "
 	}
@@ -202,6 +202,9 @@ var jstex = {
 	} else {
 	    console.log("ERROR in leaveScope: stack is empty!")
 	}
+    },
+    getCurrentScope:function(){
+	return scopes[0];
     },
     /////////////////////////////////////////////////////////////
     // The following states form return values
@@ -424,6 +427,9 @@ var jstex = {
     ////////////////////////////////////////////////////////////
     newLength:function(name){
 	jstex.scopes[0].lengths[name]="0pt";
+	jstex.newCommand(name,function(tokens,target){
+	    target.appendText(jstex.getLength(this.name));
+	});
     },
     getLength:function(name){
 	return jstex.scopes[0].lengths[name];
@@ -542,7 +548,7 @@ var jstex = {
 		    respectnewlines=0;
 		    continue;
 		}
-		var endidx  = jstex.findNextOf(input,"\\{}[]()-\t \n\r%1234567890.,#/~",idx+2);
+		var endidx  = jstex.findNextOf(input,"\\{}[]()-\t \n\r%1234567890.,#/~*:",idx+2);
 		if(endidx < 0) endidx = input.length;
 		var cmdname = input.substr(idx+1,endidx-idx-1);
 		var cmd     = jstex.getCommand(cmdname);
@@ -644,6 +650,24 @@ var jstex = {
 	jstex.expandNext(tokens,buffer);
 	return buffer.innerHTML;
     },
+    readStar:function(tokens){
+	if(tokens[0]=="*"){
+	    tokens.shift();
+	    return true;
+	}
+	return false;
+    },
+    readOptArg:function(tokens){
+	if(tokens[0].optArg){
+	    return jstex.readNext(tokens);
+	}
+	return "";
+    },
+    removeSpaces:function(tokens){
+	while(tokens[0] == " "){
+	    tokens.shift();
+	}
+    },
     read:function(tokens){
 	var buffer = document.createElement("div");
 	jstex.extendDOM(buffer);
@@ -661,9 +685,7 @@ var jstex = {
 	return result;
     },
     readLength:function(tokens){
-	var number = jstex.readNumber(tokens);
-	var unit = jstex.readUnit(tokens);
-	return number+unit;
+	return jstex.read(tokens);
     },
     readUntilEnd:function(tokens,end){
 	var buffer = document.createElement("div");
@@ -690,12 +712,12 @@ var jstex = {
 	// however, at some point, this should be replaced by a cleaner solution
 	var envs = 0;
 	var newtoks = [];
-	while(tokens.length > 0){
+	while(tokens.length > 0 && tokens[0]){
 	    if(envs <= 0){
 		for(var i=0; i<stoptoks.length; i++){
 		    if(tokens[0] == stoptoks[i])
 			return newtoks;
-		    if(tokens[0].name && stoptoks[i].name && tokens[0].name == stoptoks[i].name)
+		    if(stoptoks[i] && tokens[0].name && stoptoks[i].name && tokens[0].name == stoptoks[i].name)
 			return newtoks;
 		}
 	    }
@@ -749,6 +771,17 @@ var jstex = {
 	   return status;
        }
        return jstex.expandNext(tokens,target);  
+    },
+    expandUntilEnd:function(tokens,target){
+	if(jstex.isArray(tokens)){
+	    var toks = jstex.shiftTokensUntilCommand(tokens,["end","endgroup"]);
+	    var status = jstex.expand(toks,target);
+	    if(tokens.length > 0){
+		return jstex.Status.READING;
+	    }
+	    return status;
+	}
+	return jstex.expandNext(tokens,target);  
     },
     expandNext:function(tokens,target){
 	if(!target || !target.createChild){
@@ -963,6 +996,11 @@ jstex.resources.tableofcontents=document.createElement("div");
 jstex.extendDOM(jstex.resources.tableofcontents);
 jstex.resources.tableofcontents_title = jstex.resources.tableofcontents.createChild("div",{"id":"jstex_toctitle","className":"jstex_toctitle"})
 jstex.resources.tableofcontents_title.innerHTML="Table of Contents";
+jstex.resources.listoffigures=document.createElement("div");
+jstex.extendDOM(jstex.resources.listoffigures);
+jstex.resources.listoffigures_title = jstex.resources.listoffigures.createChild("div",{"id":"jstex_loftitle","className":"jstex_loftitle"})
+jstex.resources.listoffigures_title.innerHTML="List of Figues";
+
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
@@ -987,12 +1025,15 @@ jstex.newCommand("rule"    ,function(tokens,parent){
 //// extra symbols
 jstex.newCommand("glqq",     function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&bdquo;" )); return true});
 jstex.newCommand("grqq",     function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&ldquo;" )); return true});
+jstex.newCommand("guillemotleft",     function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&bdquo;" )); return true});
+jstex.newCommand("guillemotright",     function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&ldquo;" )); return true});
 jstex.newCommand("euro",     function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&euro;"  )); return true});
 jstex.newCommand("textndash",function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&ndash;" )); return true});
 jstex.newCommand("textmdash",function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&mdash;" )); return true});
 jstex.newCommand("texttimes",function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&times;" )); return true});
 jstex.newCommand("times",function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&times;" )); return true});
 jstex.newCommand("infty",function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&infin;" )); return true});
+jstex.newCommand("textinfty",function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&infin;" )); return true});
 jstex.newCommand("dots",     function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&#8230;" )); return true});
 jstex.newCommand("&",        function(tokens,parent){parent.appendText(jstex.getHTMLAlias("&amp;"   )); return true});
 jstex.newCommand("%",        function(tokens,parent){parent.appendText(jstex.getHTMLAlias("%"   )); return true});
@@ -1017,11 +1058,14 @@ jstex.ignoreCommand("twocolumn");
 jstex.ignoreCommand("onecolumn");
 jstex.ignoreCommand("noindent");
 jstex.ignoreCommand("geometry",1);
+jstex.ignoreCommand("pagestyle",1);
+jstex.ignoreCommand("hypthenation",1);
+jstex.ignoreCommand("let",2);
+jstex.ignoreCommand("addtokomafont",2);
 jstex.ignoreCommand("appendix");
 jstex.ignoreCommand("clearpage");
 jstex.ignoreCommand("cleardoublepage");
 jstex.ignoreCommand("newpage");
-jstex.ignoreCommand("documentclass");
 		 
 //// document setup
 jstex.newCommand("author",function(tokens,parent){ 
@@ -1054,6 +1098,10 @@ jstex.newCommand("maketitle",function(tokens,parent){
 
 jstex.newCommand("tableofcontents",function(tokens,parent){
     parent.appendChild(jstex.resources.tableofcontents);
+});
+
+jstex.newCommand("listoffigures",function(tokens,parent){
+    parent.appendChild(jstex.resources.listoffigures);
 });
 
 jstex.newCommand("@starttoc",function(tokens,parent){
@@ -1163,8 +1211,6 @@ jstex.newCommand("footnote",function(tokens,parent){
     return true;
 });
 
-jstex.newCommand("caption",function(tokens,target){return jstex.expandNext(tokens,target.createChild("div",{"style":{"text-align":"center"}}))});
-
 jstex.newCommand("label",function(tokens,target){
     jstex.buffer.innerHTML="";
     var retval = jstex.expandNext(tokens,jstex.buffer);
@@ -1189,43 +1235,57 @@ jstex.newCommand("ref",function(tokens,target){
     return retval;
 });
 
-//// sectioning
-var sections = ["section","subsection","subsubsection"];
-for(var i=0; i<sections.length; i++){
-    var tag = jstex.scopes[0].tags[sections[i]];
-    jstex.newCounter(sections[i]);
-    var seccmd = jstex.newCommand(sections[i],function(tokens,parent){
-	var id = jstex.makeid();
-	var header = parent.createChild(tag,{"id":id});
-	jstex.stepCounter(this.name);
-	var thesec = this.getSecNum();
-	jstex.setLastRef(header,thesec);
-	if(this.depth < jstex.getCounter("secnumdepth")){
-	    header.innerHTML=thesec + " ";
-	} else {
-	    header.innerHTML = "";
-	}
-	var retval = jstex.expandNext(tokens,header);
-	var tocentry = jstex.resources.tableofcontents.createChild("a",{"className":"jstex_tocstyle_"+this.name,"href":"#"+id});
-	tocentry.innerHTML=header.innerHTML;
-	return retval;
-    });
-    seccmd.depth = i;
-    if(i>0){
-	jstex.setCounterWithin(sections[i-1],sections[i]);
-	seccmd.parentSectionName = sections[i-1];
-	seccmd.getSecNum = function(){
-	    return jstex.getCommand(this.parentSectionName).getSecNum()+"."+jstex.getCounter(this.name);
-	}
+jstex.newCommand("documentclass",function(tokens,target){
+    var optArg = jstex.readOptArg(tokens);
+    var docclass = jstex.readNext(tokens);
+    console.log("using document class '"+docclass+"' with arguments '"+optArg+"'");
+    jstex.setupDocumentClass(docclass);
+    return true;
+});
+
+jstex.setupDocumentClass = function(docclass){
+    if(docclass == "book"){
+	jstex.getCurrentScope().tags.chapter="h1";
+	var sections = ["chapter","section","subsection","subsubsection"];
     } else {
-	seccmd.getSecNum = function(){
-	    return jstex.getCounter(this.name);
-	}
+	var sections = ["section","subsection","subsubsection"];
     }
-    jstex.newCommand(sections[i]+"*",function(tokens,parent){
-	var retval = jstex.expandNext(tokens,parent.createChild(tag));
-	return retval;
-    });
+    for(var i=0; i<sections.length; i++){
+	var tag = jstex.scopes[0].tags[sections[i]];
+	jstex.newCounter(sections[i]);
+	var seccmd = jstex.newCommand(sections[i],function(tokens,parent){
+	    var id = jstex.makeid();
+	    var header = parent.createChild(tag,{"id":id,"className":"jstex_secstyle_"+this.name});
+	    jstex.stepCounter(this.name);
+	    var thesec = this.getSecNum();
+	    jstex.setLastRef(header,thesec);
+	    if(this.depth < jstex.getCounter("secnumdepth")){
+		header.innerHTML=thesec + " ";
+	    } else {
+		header.innerHTML = "";
+	    }
+	    var retval = jstex.expandNext(tokens,header);
+	    var tocentry = jstex.resources.tableofcontents.createChild("a",{"className":"jstex_tocstyle_"+this.name,"href":"#"+id});
+	    tocentry.innerHTML=header.innerHTML;
+	    return retval;
+	});
+	seccmd.depth = i;
+	if(i>0){
+	    jstex.setCounterWithin(sections[i-1],sections[i]);
+	    seccmd.parentSectionName = sections[i-1];
+	    seccmd.getSecNum = function(){
+		return jstex.getCommand(this.parentSectionName).getSecNum()+"."+jstex.getCounter(this.name);
+	    }
+	} else {
+	    seccmd.getSecNum = function(){
+		return jstex.getCounter(this.name);
+	    }
+	}
+	jstex.newCommand(sections[i]+"*",function(tokens,parent){
+	    var retval = jstex.expandNext(tokens,parent.createChild(tag));
+	    return retval;
+	});
+    }
 };
 jstex.newCommand("paragraph",    function(tokens,target){return jstex.expandNext(tokens,target.createChild("span",{"style":{"font-weight":"bold"}}))});
 
@@ -1234,15 +1294,15 @@ jstex.newCommand("textit",    function(tokens,target){return jstex.expandNext(to
 jstex.newCommand("textbf",    function(tokens,target){return jstex.expandNext(tokens,target.createChild("span",{"style":{"font-weight":"bold"}}))});
 jstex.newCommand("texttt",    function(tokens,target){return jstex.expandNext(tokens,target.createChild("span",{"style":{"font-family":"monospace"}}))});
 jstex.newCommand("textsc",    function(tokens,target){return jstex.expandNext(tokens,target.createChild("span",{"style":{"font-variant":"small-caps"}}))});
-jstex.newCommand("itshape",   function(tokens,target){return jstex.expand    (tokens,target.createChild("span",{"style":{"font-style":"italic"      }}))});
-jstex.newCommand("twistshape",function(tokens,target){return jstex.expand    (tokens,target.createChild("span",{"style":{"font-style":"italic"      }}))});
-jstex.newCommand("bfseries",  function(tokens,target){return jstex.expand    (tokens,target.createChild("span",{"style":{"font-weight":"bold"       }}))});
-jstex.newCommand("sffamily",  function(tokens,target){return jstex.expand    (tokens,target.createChild("span",{"style":{"font-family":"sans-serif"       }}))});
-jstex.newCommand("sqrcfamily",function(tokens,target){return jstex.expand    (tokens,target.createChild("span",{"style":{"font-variant":"small-caps"}}))});
+jstex.newCommand("itshape",   function(tokens,target){return jstex.expandUntilEnd(tokens,target.createChild("span",{"style":{"font-style":"italic"      }}))});
+jstex.newCommand("twistshape",function(tokens,target){return jstex.expandUntilEnd(tokens,target.createChild("span",{"style":{"font-style":"italic"      }}))});
+jstex.newCommand("bfseries",  function(tokens,target){return jstex.expandUntilEnd(tokens,target.createChild("span",{"style":{"font-weight":"bold"       }}))});
+jstex.newCommand("mdseries",  function(tokens,target){return jstex.expandUntilEnd(tokens,target.createChild("span",{"style":{"font-weight":"normal"       }}))});
+jstex.newCommand("sffamily",  function(tokens,target){return jstex.expandUntilEnd(tokens,target.createChild("span",{"style":{"font-family":"sans-serif"       }}))});
 
-jstex.newCommand("centering",  function(tokens,target){return jstex.expand    (tokens,target.createChild("div",{"style":{"text-align":"center"       }}))});
-jstex.newCommand("flushleft",  function(tokens,target){return jstex.expand    (tokens,target.createChild("div",{"style":{"text-align":"left"       }}))});
-jstex.newCommand("flushright", function(tokens,target){return jstex.expand    (tokens,target.createChild("div",{"style":{"text-align":"right"       }}))});
+jstex.newCommand("centering",  function(tokens,target){return jstex.expandUntilEnd(tokens,target.createChild("div",{"style":{"text-align":"center"       }}))});
+jstex.newCommand("flushleft",  function(tokens,target){return jstex.expandUntilEnd(tokens,target.createChild("div",{"style":{"text-align":"left"       }}))});
+jstex.newCommand("flushright", function(tokens,target){return jstex.expandUntilEnd(tokens,target.createChild("div",{"style":{"text-align":"right"       }}))});
 
 jstex.setLength("tiny","6pt");
 jstex.setLength("footnotesize","8pt");
@@ -1265,7 +1325,6 @@ jstex.newCommand("fontsize",function(tokens,parent){
     jstex.setLength("_fontsize",size);
     var space = jstex.readLength(tokens.shift());
     jstex.setLength("_linespace",space);
-    console.log(size,space);
     return true;
 });
 
@@ -1307,7 +1366,15 @@ jstex.newCommand("begin",function(tokens,target){
     jstex.buffer.innerHTML="";
     jstex.expandNext(tokens,jstex.buffer);
     var envname = jstex.buffer.innerHTML;
-    var env = jstex.getEnvironment(envname);
+    if(envname[envname.length-1] == "*"){
+	console.log("found starred version of "+envname);
+	var starred = true;
+	var env = jstex.getEnvironment(envname.substr(0,envname.length-1));
+    } else {
+	console.log("found unstarred version of "+envname);
+	var starred = false;
+	var env = jstex.getEnvironment(envname);
+    }
     jstex.enterScope();
     // it is important that the return-value is not forwarded
     // otherwise, the expander would return the ENDSTREAM/ENDGROUP
@@ -1320,13 +1387,21 @@ jstex.newCommand("begin",function(tokens,target){
     }
     jstex.prependArray(env.beginTokens,tokens);
     console.log("entering environment '"+envname+"'");
-    env.expand(tokens,target);
+    env.expand(tokens,target,starred);
     return jstex.Status.READING;
 });
 
 jstex.newCommand("end",function(tokens,target){
     var envname = jstex.readNext(tokens);
-    var env = jstex.getEnvironment(envname);
+    if(envname[envname.length-1] == "*"){
+	console.log("found starred version of "+envname);
+	var starred = true;
+	var env = jstex.getEnvironment(envname.substr(0,envname.length-1));
+    } else {
+	console.log("found unstarred version of "+envname);
+	var starred = false;
+	var env = jstex.getEnvironment(envname);
+    }
     if(!env){
 	console.log("warning: encountered unknown end-environment '"+envname+"'");
     } else {
@@ -1350,7 +1425,6 @@ jstex.newCommand("begingroup",function(tokens,target){
 
 jstex.newCommand("endgroup",function(tokens,target){
     console.log("endgroup");
-    jstex.printArray(tokens);
     jstex.leaveScope();
     return jstex.Status.ENDGROUP;
 });
@@ -1440,32 +1514,62 @@ jstex.newEnvironment("abstract",function(tokens,target){return jstex.expand(toke
 jstex.newEnvironment("small",function(tokens,target){return jstex.expand(tokens,target.createChild("div",{"style":{"font-size":"0.7em"}}))});
 jstex.newEnvironment("minipage",function(tokens,target){var width = jstex.readNext(tokens); return jstex.expand(tokens,target.createChild("div",{"style":{"width":width}}))});
 jstex.newEnvironment("quotation",function(tokens,target){return jstex.expand(tokens,target.createChild("div",{"style":{"margin-left":"1em"}}))});
-jstex.newEnvironment("multicols",function(tokens,target){jstex.expandNext(tokens,jstex.buffer); return jstex.expand(tokens,target.createChild("div"))});
-jstex.newEnvironment("multicols*",function(tokens,target){jstex.expandNext(tokens,jstex.buffer); return jstex.expand(tokens,target.createChild("div"))});
+jstex.newEnvironment("multicols",function(tokens,target,starred){
+    jstex.expandNext(tokens,jstex.buffer); 
+    return jstex.expand(tokens,target.createChild("div"))
+});
 jstex.newEnvironment("itemize",function(tokens,target){
-    jstex.newCommand("item",  function(tokens,target){jstex.expandUntilCommand    (tokens,target.createChild("li",{}),["item"]); return jstex.Status.READING;},true);
-    return jstex.expand(tokens,target.createChild("ul"));
+    jstex.newCommand("item",  function(tokens,target){
+	var bullet = jstex.readOptArg(tokens);
+	if(!bullet) bullet="•";
+	jstex.removeSpaces(tokens);
+	var item = target.createChild("li",{});
+	jstex.expandUntilCommand(tokens,item,["item"]); 
+	item.setAttribute("data-item",bullet);
+	return jstex.Status.READING;
+    },true);
+    return jstex.expand(tokens,target.createChild("ul",{"className":"jstex_itemize"}));
 });
 jstex.newEnvironment("description",function(tokens,target){
     jstex.newCommand("item",  function(tokens,target){
-	var item = target.createChild("div",{});
-	if(tokens[0].optArg){
-	    jstex.expandNext(tokens,item.createChild("span",{"style":{"font-weight":"bold"}}));
-	}
-	jstex.expandUntilCommand    (tokens,item.createChild("span",{}),["item"]); 
+	var itemtext = jstex.readOptArg(tokens);
+	jstex.removeSpaces(tokens);
+	var item = target.createChild("li",{});
+	jstex.expandUntilCommand(tokens,item,["item"]); 
+	item.setAttribute("data-item",itemtext);
 	return jstex.Status.READING;
     },true);
-    return jstex.expand(tokens,target.createChild("div"));
+    return jstex.expand(tokens,target.createChild("ul",{"className":"jstex_description"}));
+});
+jstex.newCommand("caption",function(tokens,target){
+    return jstex.expandNext(tokens,target.createChild("div",{"style":{"text-align":"center"}}))
 });
 jstex.newCounter("figure");
 jstex.newEnvironment("figure",function(tokens,target){
+    jstex.readOptArg(tokens);
+    jstex.newCommand("caption",function(tokens,target){
+	return jstex.expandNext(tokens,target.createChild("div",{"style":{"text-align":"center"}}))
+    },true);
+    if(tokens[0].optArg) tokens[0].shift();
     jstex.stepCounter("figure");
     return jstex.expand(tokens,target.createChild("div",{"style":{"text-align":"center"}}))
 });
 
-jstex.newEnvironment("table",function(tokens,target){
+jstex.newEnvironment("table",function(tokens,target,starred){
+    jstex.readOptArg(tokens);
+    jstex.newCommand("caption",function(tokens,target){
+	return jstex.expandNext(tokens,target.createChild("div",{"style":{"text-align":"center"}}))
+    },true);
+    if(tokens[0].optArg) tokens[0].shift();
     jstex.stepCounter("table");
     return jstex.expand(tokens,target.createChild("div",{"style":{"text-align":"center"}}))
+});
+
+jstex.newEnvironment("subtable",function(tokens,target){
+    jstex.readOptArg(tokens);
+    jstex.stepCounter("table");
+    var width = jstex.readLength(tokens[0]);
+    return jstex.expand(tokens,target.createChild("div",{"style":{"display":"inline-block","text-align":"center","width":width}}))
 });
 
 jstex.printArray=function(arr,indent){
@@ -1513,7 +1617,9 @@ jstex.newEnvironment("tabular",function(tokens,target){
 	}
 	colcnt = 0;
     }
-    return jstex.Status.READING;});
+    return jstex.Status.READING;
+});
+jstex.newEnvironment("longtable",jstex.getEnvironment("tabular").expand);
 
 //// math commands
 jstex.newEnvironment("$",function(tokens,target){
@@ -1548,17 +1654,25 @@ jstex.ignore_package("geometry");
 jstex.ignore_package("a4wide");
 jstex.ignore_package("multicol");
 jstex.ignore_package("flafter");
+jstex.ignore_package("placeins");
+jstex.ignore_package("fancyhdr");
 
 //// ignored packages that are already inside the default implementation
 jstex.ignore_package("hyperref");
 jstex.ignore_package("array");
 jstex.ignore_package("color");
 jstex.ignore_package("xcolor");
+jstex.ignore_package("url");
 
 //// special font packages that will probably never be implemented anyway
 jstex.ignore_package("trajan");
 jstex.ignore_package("vicent");
-jstex.ignore_package("sqrcaps");
+jstex.packages.sqrcaps = { load:function(args){
+    jstex.newCommand("sqrcfamily",function(tokens,target){return jstex.expandUntilEnd(tokens,target.createChild("span",{"style":{"font-variant":"small-caps"}}))});
+}};
+jstex.packages.auncial = { load:function(args){
+    jstex.newCommand("aunclfamily",function(tokens,target){return jstex.expandUntilEnd(tokens,target.createChild("span",{"style":{"font-variant":"small-caps"}}))});
+}};
 
 //// packages that have not yet been implemented
 jstex.ignore_package("graphicx");
@@ -1569,6 +1683,7 @@ jstex.ignore_package("titlesec");
 jstex.ignore_package("enumitem");
 jstex.ignore_package("subcaption");
 jstex.ignore_package("longtable");
+jstex.ignore_package("chngcntr");
 
 /// package emulation
 
@@ -1694,6 +1809,8 @@ jstex.packages.ccicons = { load:function(args){
 jstex.packages.babel = { load:function(args){
     var toctitle = jstex.resources.tableofcontents_title;
     if(args.indexOf("ngerman") != -1) toctitle.innerHTML="Inhaltsverzeichnis";
+    var loftitle = jstex.resources.listoffigures_title;
+    if(args.indexOf("ngerman") != -1) loftitle.innerHTML="Abbildungsverzeichnis";
     return true;
 }};
 
@@ -1705,9 +1822,17 @@ style.innerHTML+= '.jstex_refstyle               { display:inline; text-decorati
 style.innerHTML+= '.jstex_tocstyle_section       { display:block; text-decoration:none; color: black; font-weight:bold; }';
 style.innerHTML+= '.jstex_tocstyle_subsection    { display:block; text-decoration:none; color: black; margin-left:1em;}';
 style.innerHTML+= '.jstex_tocstyle_subsubsection { display:block; text-decoration:none; color: black; font-style:italic; margin-left:2em;}';
+style.innerHTML+= '.jstex_loftitle { font-weight:bold; font-size:1.17em; margin-bottom:1em; }';
 style.innerHTML+= '.jstex_hovercontainer         { position:fixed; text-align:center; display:block; width:100%; height:100%; top:0px; left:0px; z-index:10 }';
 style.innerHTML+= '.jstex_hover                  { position:absolute; background:white; text-align:center; display:block; border:10px solid #C8C8C8; -moz-border-radius: 15px; border-radius: 15px; opacity: 0.9; z-index: 10; padding-bottom:10px; padding-left:10px; padding-right:10px; width:80%; top:10%; left:10%; max-height:80%; overflow:scroll; }';
 document.head.appendChild(style);
+style.innerHTML+= '.jstex_secstyle_chapter       { display:block; text-decoration:none; color: black; font-weight:bold; text-align:center;}';
+style.innerHTML+= 'ul.jstex_itemize              { list-style: none outside; padding-left:1em; }';
+style.innerHTML+= 'ul.jstex_itemize li           { padding-left: .7em; position: relative; }';
+style.innerHTML+= 'ul.jstex_itemize li:before    { position: absolute; left:0pt; content: attr(data-item); }';
+style.innerHTML+= 'ul.jstex_description           { list-style: none inside; padding-left:1em; }';
+style.innerHTML+= 'ul.jstex_description li        { }';
+style.innerHTML+= 'ul.jstex_description li:before { position: initial; font-weight:bold; content: attr(data-item); padding-right:1ex; }';
 
 try {
     if(MathJax) console.log("using MathJax");
@@ -1718,3 +1843,8 @@ try {
 
 jstex.newCounter("secnumdepth");
 jstex.setCounter("secnumdepth",3);
+jstex.newLength("linewidth");
+jstex.setLength("linewidth","100%");
+
+
+// TODO: paragraph handling!
