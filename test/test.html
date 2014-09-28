@@ -1,18 +1,18 @@
 <html>
 <head>
 <script type="text/javascript" src="http://cdn.mathjax.org/mathjax/latest/MathJax.js"></script>
-<script type="text/javascript" src="../tex.js">
+<script type="text/javascript" src="../domtex.js">
 </script>
 <script type="text/javascript">
-  jstex.provide_package("midgard","../packages.js/midgard.js");
-  jstex.newCommand("fancytext",function(tokens,target){return jstex.expandNext(tokens,target.createChild("span",{"style":{"font-family":"Book Antiqua"}}))});
+  domtex.preload_package("midgard","../packages.js/midgard.js");
+  domtex.newCommand("fancytext",function(tokens,target){return domtex.expandNext(tokens,target.createChild("span",{"style":{"font-family":"Book Antiqua"}}))});
 </script>
 <!--<script type="text/javascript" src="http://code.jquery.com/jquery-1.5.1.min.js"></script>-->
 <style>
   .title {
   font-style: italic;
   }
-  .jsTeX {
+  .domtex {
     border: 2px solid;
     border-radius: 8px;
     margin:10px;
@@ -42,7 +42,7 @@
 	      var reader = new FileReader();
 	      reader.onload = (function(theFile) {
 		  return function(e) {
-		      document.getElementById("main").insertBefore(jstex.texdoc(e.target.result), null);
+		      document.getElementById("main").insertBefore(domtex.texdoc(e.target.result), null);
 		  };
 	      })(f);
 	      reader.readAsText(f);
