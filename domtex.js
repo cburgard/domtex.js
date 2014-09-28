@@ -97,7 +97,7 @@ var domtex = {
     copyObject:function(obj,depth){
 	var retval = {};
 	for(key in obj){
-	    if(depth > 0){
+	    if(typeof obj[key] == "object" && depth > 0){
 		retval[key] = domtex.copyObject(obj[key],depth-1);
 	    } else {
 		retval[key] = obj[key];
@@ -155,6 +155,34 @@ var domtex = {
 	}
     } ],
     counterswithin : [],
+    documentclasses : {
+	book : {
+	    setup : function(){
+		domtex.getCurrentScope().tags.chapter="h1";
+		var sections = ["chapter","section","subsection","subsubsection"];
+		domtex.setupSections(sections);
+	    }
+	},
+	scrbook : {
+	    setup : function(){
+		domtex.getCurrentScope().tags.chapter="h1";
+		var sections = ["chapter","section","subsection","subsubsection"];
+		domtex.setupSections(sections);
+	    }
+	},
+	article : {
+	    setup : function(){
+		var sections = ["section","subsection","subsubsection"];
+		domtex.setupSections(sections);
+	    }
+	},
+	scrartcl : {
+	    setup : function(){
+		var sections = ["section","subsection","subsubsection"];
+		domtex.setupSections(sections);
+	    }
+	}
+    },
     createDummy:function(title){
 	var dummy = document.createElement("span");
 	dummy.title=title;
@@ -186,7 +214,7 @@ var domtex = {
 	scope = {
 	    commands :     domtex.copyObject(curscope.commands,1),
 	    environments : domtex.copyObject(curscope.environments,1),
-	    counters :     domtex.copyObject(curscope.counters,1),
+	    counters :     curscope.counters,
 	    lengths :      domtex.copyObject(curscope.lengths,1),
 	    lastRef:       curscope.lastRef,
 	    tags :         curscope.tags,
@@ -233,7 +261,7 @@ var domtex = {
 	    if(force || cmd.isUndefined){
 		cmd.isUndefined = false;
 		cmd.expand = expand;
-		return;
+		return cmd;
 	    } else {
 		console.log("command '"+name+"' is already defined!");
 		return cmd;
@@ -388,10 +416,15 @@ var domtex = {
     addEnvironment:function(env){
 	domtex.scopes[0].environments[env.name] = env;
     },
-    newEnvironment : function(name,expand){
+    newEnvironment : function(name,expand,verb){
 	var env = new Object();
 	env.name = name;
 	env.expand=expand;
+	if(verb == true){
+	    env.isVerbatim=verb
+	} else {
+	    env.isVerbatim=false;
+	}
 	domtex.addEnvironment(env);
 	return env;
     },
@@ -406,7 +439,7 @@ var domtex = {
 	domtex.counterswithin[name] = {};
     },
     stepCounter:function(name){
-	domtex.scopes[0].counters[name] = domtex.scopes[0].counters[name] + 1;
+	domtex.scopes[0].counters[name] = 1 + domtex.scopes[0].counters[name];
 	for(key in domtex.counterswithin[name]){
 	    if(domtex.counterswithin[name][key]){
 		domtex.resetCounter(key);
@@ -503,11 +536,13 @@ var domtex = {
 	    }
 	    if(input[idx] == '$'){
 		if(domtex.inMathMode){
+		    console.log("found end of math environment");
 		    var tkn = domtex.getCommand("end");
 		    domtex.inMathMode = false;
 		    respectblanks = true;
 		    respectnewlines = 0;
 		} else {
+		    console.log("found begin of math environment");
 		    var tkn = domtex.getCommand("begin");
 		    domtex.inMathMode = true;
 		    respectblanks = false;
@@ -555,8 +590,29 @@ var domtex = {
 		if(endidx < 0) endidx = input.length;
 		var cmdname = input.substr(idx+1,endidx-idx-1);
 		var cmd     = domtex.getCommand(cmdname);
-		if(cmd) tokens.push(cmd);
-		else tokens.push(domtex.newCommand(cmdname,undefined));
+		if(!cmd){
+		    tokens.push(domtex.newCommand(cmdname,undefined));
+		} else {
+		    if(cmd.name=="begin"){
+			var s = input.indexOf("{",endidx)+1;
+			var e = input.indexOf("}",s);
+			var envname = input.substr(s,e-s).trim();
+			e = e+1;
+			var env = domtex.getEnvironment(envname);
+			if(env && env.isVerbatim){
+		    	    console.log("found verbatim environment: '" + envname + "'");
+		    	    var endpos = domtex.findenvend(input,envname,e);
+		    	    var strtok = input.substr(e,endpos-e);
+		    	    tokens.push(domtex.getCommand("verbatim"));
+		    	    tokens.push(strtok);
+		    	    endidx = endpos+6+envname.length; // +6 for \\end{ ... }
+			} else {
+			    tokens.push(cmd);
+			}
+		    } else {
+			tokens.push(cmd);
+		    }
+		}
 		respectblanks = false;
 		respectnewlines=2;
 		idx=endidx;
@@ -694,16 +750,19 @@ var domtex = {
 	var buffer = document.createElement("div");
 	domtex.extendDOM(buffer);
 	while(tokens.length > 0){
-	    var tkn = tokens.shift();
-	    if(tkn.name != "end" || tkn.name == "endgroup"){
-		domtex.expand(tkn,buffer);
-		continue;
-	    }
-	    var nexttkn = tokens.shift();
-	    if(domtex.isArray(nexttkn) && nexttkn[0] == end){
-		return buffer.innerHTML;
+	    var tkn = tokens[0];
+	    if(!tkn.name || (tkn.name != "end" && tkn.name != "endgroup")){
+		domtex.expandNext(tokens,buffer);
 	    } else {
-		domtex.expand(nexttkn,buffer);
+		tokens.shift();
+		var nexttkn = domtex.readNext(tokens);
+		if(nexttkn == end){
+		    tkn.expand(nexttkn);
+		    return buffer.innerHTML;
+		} else {
+		    buffer.innerHTML+="{"+nexttkn+"}";
+		    domtex.expand(nexttkn,buffer);
+		}
 	    }
 	}
 	console.log("ERROR: missing \\end{"+end+"}");
@@ -885,14 +944,14 @@ var domtex = {
     /////////////////////////////////////////////////////////////
     // some special parsing functions need to be defined as glue code
     /////////////////////////////////////////////////////////////
-    findenvbegin : function(source,envname){
+    findenvbegin : function(source,envname,startpos){
 	var s = "\\begin{"+envname+"}";
-	var idx = source.indexOf(s);
+	var idx = source.indexOf(s,startpos);
 	if(idx < 0) return idx;
 	return idx+s.length;
     },
-    findenvend : function(source,envname){
-	return source.indexOf("\\end{"+envname+"}");
+    findenvend : function(source,envname,startpos){
+	return source.indexOf("\\end{"+envname+"}",startpos);
     },
     parseKeyValArg:function(token){
 	var x = true;
@@ -1069,6 +1128,7 @@ domtex.ignoreCommand("appendix");
 domtex.ignoreCommand("clearpage");
 domtex.ignoreCommand("cleardoublepage");
 domtex.ignoreCommand("newpage");
+domtex.ignoreCommand("FloatBarrier");
 		 
 //// document setup
 domtex.newCommand("author",function(tokens,parent){ 
@@ -1227,32 +1287,24 @@ domtex.newCommand("label",function(tokens,target){
 });
 
 domtex.newCommand("ref",function(tokens,target){
-    domtex.buffer.innerHTML="";
-    var retval = domtex.expandNext(tokens,domtex.buffer);
-    var label = domtex.buffer.innerText;
+    var label = domtex.readNext(tokens);
     target.createChild("a",{
 	"href":"#"+label,
 	"refid":label,
 	"className":"domtex_refstyle",
-    })
-    return retval;
+    });
+    return true;
 });
 
 domtex.newCommand("documentclass",function(tokens,target){
     var optArg = domtex.readOptArg(tokens);
     var docclass = domtex.readNext(tokens);
     console.log("using document class '"+docclass+"' with arguments '"+optArg+"'");
-    domtex.setupDocumentClass(docclass);
+    domtex.documentclasses[docclass].setup(optArg);
     return true;
 });
 
-domtex.setupDocumentClass = function(docclass){
-    if(docclass == "book"){
-	domtex.getCurrentScope().tags.chapter="h1";
-	var sections = ["chapter","section","subsection","subsubsection"];
-    } else {
-	var sections = ["section","subsection","subsubsection"];
-    }
+domtex.setupSections = function(sections){
     for(var i=0; i<sections.length; i++){
 	var tag = domtex.scopes[0].tags[sections[i]];
 	domtex.newCounter(sections[i]);
@@ -1272,6 +1324,7 @@ domtex.setupDocumentClass = function(docclass){
 	    tocentry.innerHTML=header.innerHTML;
 	    return retval;
 	});
+	console.log(sections[i],seccmd);
 	seccmd.depth = i;
 	if(i>0){
 	    domtex.setCounterWithin(sections[i-1],sections[i]);
@@ -1292,11 +1345,22 @@ domtex.setupDocumentClass = function(docclass){
 };
 domtex.newCommand("paragraph",    function(tokens,target){return domtex.expandNext(tokens,target.createChild("span",{"style":{"font-weight":"bold"}}))});
 
+domtex.newCommand("verbatim",  function(tokens,target){
+    var c = target.createChild("span",{"className":"domtex_verbatim"});
+    c.innerText=tokens.shift();
+    return true;
+});
+
 //// font choices
 domtex.newCommand("textit",    function(tokens,target){return domtex.expandNext(tokens,target.createChild("span",{"style":{"font-style":"italic"}}))});
 domtex.newCommand("textbf",    function(tokens,target){return domtex.expandNext(tokens,target.createChild("span",{"style":{"font-weight":"bold"}}))});
 domtex.newCommand("texttt",    function(tokens,target){return domtex.expandNext(tokens,target.createChild("span",{"style":{"font-family":"monospace"}}))});
 domtex.newCommand("textsc",    function(tokens,target){return domtex.expandNext(tokens,target.createChild("span",{"style":{"font-variant":"small-caps"}}))});
+domtex.newCommand("textrm",    function(tokens,target){return domtex.expandNext(tokens,target.createChild("span",{"style":{"font-weight":"normal", "font-family":"roman"}}))});
+domtex.newCommand("text",      function(tokens,target){
+    console.log("executing text");
+    return domtex.expandNext(tokens,target.createChild("span",{"style":{"font-weight":"normal", "font-family":"roman"}}))
+});
 domtex.newCommand("itshape",   function(tokens,target){return domtex.expandUntilEnd(tokens,target.createChild("span",{"style":{"font-style":"italic"      }}))});
 domtex.newCommand("twistshape",function(tokens,target){return domtex.expandUntilEnd(tokens,target.createChild("span",{"style":{"font-style":"italic"      }}))});
 domtex.newCommand("bfseries",  function(tokens,target){return domtex.expandUntilEnd(tokens,target.createChild("span",{"style":{"font-weight":"bold"       }}))});
@@ -1351,7 +1415,12 @@ domtex.newCommand("setlength",function(tokens,parent){
 });
 
 //// boxes
-//domtex.newCommand("mbox",function(tokens){return "<span style='white-space:nowrap'>"+domtex.tex(tokens.shift())+"</span>"});
+domtex.newCommand("mbox",function(tokens,parent){return domtex.expandNext(tokens,parent.createChild("span",{"style":{"display":"inline-block"}}));});
+domtex.newCommand("makebox",function(tokens,parent){
+    var len = domtex.readOptArg(tokens);
+    var pos = domtex.readOptArg(tokens);
+    return domtex.expandNext(tokens,parent.createChild("span",{"style":{"display":"inline-block"}}));
+});
 //domtex.newCommand("fbox",function(tokens){return "<span style='white-space:nowrap; border:"+domtex.lengths.frameborder+"'>"+domtex.tex(tokens.shift())+"</span>"});
 //domtex.newCommand("parbox",function(tokens){return "<span'>"+domtex.tex(tokens.shift())+"</span>"});
 
@@ -1515,7 +1584,8 @@ domtex.newCommand("newcounter",function(tokens,parent){
 domtex.newEnvironment("center",function(tokens,target){return domtex.expand(tokens,target.createChild("div",{"style":{"text-align":"center"}}))});
 domtex.newEnvironment("abstract",function(tokens,target){return domtex.expand(tokens,target.createChild("div",{"style":{"margin":"2cm","text-align":"justify"}}))});
 domtex.newEnvironment("small",function(tokens,target){return domtex.expand(tokens,target.createChild("div",{"style":{"font-size":"0.7em"}}))});
-domtex.newEnvironment("minipage",function(tokens,target){var width = domtex.readNext(tokens); return domtex.expand(tokens,target.createChild("div",{"style":{"width":width}}))});
+domtex.newEnvironment("minipage",function(tokens,target){var width = domtex.readNext(tokens); return domtex.expand(tokens,target.createChild("div",{"style":{"width":width}}));});
+domtex.newEnvironment("framed",function(tokens,target){return domtex.expand(tokens,target.createChild("div",{"className":"domtex_framed"}))});
 domtex.newEnvironment("quotation",function(tokens,target){return domtex.expand(tokens,target.createChild("div",{"style":{"margin-left":"1em"}}))});
 domtex.newEnvironment("multicols",function(tokens,target,starred){
     domtex.expandNext(tokens,domtex.buffer); 
@@ -1551,21 +1621,30 @@ domtex.newCounter("figure");
 domtex.newEnvironment("figure",function(tokens,target){
     domtex.readOptArg(tokens);
     domtex.newCommand("caption",function(tokens,target){
-	return domtex.expandNext(tokens,target.createChild("div",{"style":{"text-align":"center"}}))
+	var caption = target.createChild("div",{"className":"domtex_figureCaptionContainer"});
+	caption.createChild("div",{"className":"domtex_figureCaptionTitle"}).innerText="Abbildung "+domtex.getCounter("figure")+":";
+	return domtex.expandNext(tokens,caption.createChild("div",{"className":"domtex_figureCaptionContent"}));
     },true);
     if(tokens[0].optArg) tokens[0].shift();
     domtex.stepCounter("figure");
-    return domtex.expand(tokens,target.createChild("div",{"style":{"text-align":"center"}}))
+    var figure = target.createChild("div",{"style":{"text-align":"center"}});
+    domtex.setLastRef(figure,domtex.getCounter("figure"));
+    return domtex.expand(tokens,figure);
 });
 
+domtex.newCounter("table");
 domtex.newEnvironment("table",function(tokens,target,starred){
     domtex.readOptArg(tokens);
     domtex.newCommand("caption",function(tokens,target){
-	return domtex.expandNext(tokens,target.createChild("div",{"style":{"text-align":"center"}}))
+	var caption = target.createChild("div",{"className":"domtex_tableCaptionContainer"});
+	caption.createChild("div",{"className":"domtex_tableCaptionTitle"}).innerText="Tabelle "+domtex.getCounter("table")+":";
+	return domtex.expandNext(tokens,caption.createChild("div",{"className":"domtex_tableCaptionContent"}));
     },true);
     if(tokens[0].optArg) tokens[0].shift();
     domtex.stepCounter("table");
-    return domtex.expand(tokens,target.createChild("div",{"style":{"text-align":"center"}}))
+    var table = target.createChild("div",{"style":{"text-align":"center"}});
+    domtex.setLastRef(table,domtex.getCounter("table"));
+    return domtex.expand(tokens,table);
 });
 
 domtex.newEnvironment("subtable",function(tokens,target){
@@ -1605,6 +1684,7 @@ domtex.newEnvironment("tabular",function(tokens,target){
 		continue;
 	    } else if(next.name == "end"){
 		// TODO: what happens if this is not the end that belongs to the table?
+		console.log("encountered end");
 		return next.expand(tokens,target);
 	    } else {
 		break;
@@ -1679,6 +1759,8 @@ domtex.packages.auncial = { load:function(args){
 
 //// packages that have not yet been implemented
 domtex.ignore_package("graphicx");
+domtex.ignore_package("amsmath");
+domtex.ignore_package("framed");
 domtex.ignore_package("microtype");
 domtex.ignore_package("textcomp");
 domtex.ignore_package("caption");
@@ -1809,6 +1891,13 @@ domtex.packages.ccicons = { load:function(args){
 }};
 
 
+domtex.packages.pgfplots = {
+    load:function(args){
+	domtex.newEnvironment("tikzpicture",function(){ return true; },true);
+    }
+}
+
+
 domtex.packages.babel = { load:function(args){
     var toctitle = domtex.resources.tableofcontents_title;
     if(args.indexOf("ngerman") != -1) toctitle.innerHTML="Inhaltsverzeichnis";
@@ -1836,6 +1925,14 @@ style.innerHTML+= 'ul.domtex_itemize li:before    { position: absolute; left:0pt
 style.innerHTML+= 'ul.domtex_description           { list-style: none inside; padding-left:1em; }';
 style.innerHTML+= 'ul.domtex_description li        { }';
 style.innerHTML+= 'ul.domtex_description li:before { position: initial; font-weight:bold; content: attr(data-item); padding-right:1ex; }';
+style.innerHTML+= '.domtex_verbatim { display:inline-block; font-family: monospace; text-align:left }';
+style.innerHTML+= '.domtex_framed { border: 2px solid black; padding:.5em }';
+style.innerHTML+= '.domtex_tableCaptionTitle { display:inline-block; margin-right:.5em; font-weight:bold; }';
+style.innerHTML+= '.domtex_tableCaptionContent { display:inline-block; }';
+style.innerHTML+= '.domtex_tableCaptionContainer { font-size: medium; display:block; font-weight:normal; }';
+style.innerHTML+= '.domtex_figureCaptionTitle { display:inline-block; margin-right:.5em; font-weight:bold; }';
+style.innerHTML+= '.domtex_figureCaptionContent { display:inline-block; }';
+style.innerHTML+= '.domtex_figureCaptionContainer { font-size: medium; display:block; font-weight:normal; }';
 
 try {
     if(MathJax) console.log("using MathJax");
