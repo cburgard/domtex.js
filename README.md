@@ -44,5 +44,25 @@ browser.
 License and other things
 -----------------------
 
+The code that directly belongs to this project is published under the
+FreeBSD license. However, this project refers to and uses external
+libraries with different licensing, that is:
 
+ - mathematical formulae are rendered with MathJax
+   (http://www.mathjax.org/), which is distributed under the Apache
+   License 2.0
+ - it is currently planned (but not yet implemented) to employ
+   texlive.js (https://github.com/manuels/texlive.js) to use advanced
+   features (like the "picture" environment or the "tikz" and
+   "pgfplots" packages) of LaTeX, so that the implementation of
+   domtex.js can be kept simple and compact
 
+The project is currently in alpha stage, only capable of rendering
+relatively simple documents that employ a special, well-selected set
+of features. It is currently unclear when this project will leave
+alpha stage. 
+
+The domtex.js library currently makes heavy use of HTML5 and other
+brand new features. It is thus very likely that it will perform
+differntly (or not at all) in some browsers. Developement and bugfixes
+are currently only done for Google Chrome.
